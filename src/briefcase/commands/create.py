@@ -437,6 +437,43 @@ class CreateCommand(BaseCommand):
             )
         )
 
+    def optimise(self, app: BaseConfig):
+        import compileall
+        from functools import partial
+        from itertools import chain
+        import glob
+        import os
+        import re
+
+        excludes = frozenset({"nslog.py", "lib2to3"})
+        compile_ = partial(
+            compileall.compile_dir,
+            ddir="", force=True, rx=re.compile(f'({"|".join(excludes)})'), legacy=True, optimize=2
+        )
+
+        app_path = str(self.app_path(app))
+        app_packages_path = str(self.app_packages_path(app))
+        support_path = str(self.support_path(app))
+
+        for pycache_folder in chain(
+            glob.iglob(os.path.join(app_path, '**', '__pycache__'), recursive=True),
+            glob.iglob(os.path.join(app_packages_path, '**', '__pycache__'), recursive=True),
+            glob.iglob(os.path.join(support_path, '**', '__pycache__'), recursive=True),
+        ):
+            shutil.rmtree(pycache_folder)
+
+        compile_(app_path)
+        compile_(app_packages_path)
+        compile_(support_path)
+
+        for py_file in chain(
+            glob.iglob(os.path.join(app_path, '**', '*.py'), recursive=True),
+            glob.iglob(os.path.join(app_packages_path, '**', '*.py'), recursive=True),
+            glob.iglob(os.path.join(support_path, '**', '*.py'), recursive=True),
+        ):
+            if not any(e in py_file for e in excludes):
+                os.unlink(py_file)
+
     def install_image(self, role, variant, size, source, target):
         """
         Install an icon/image of the requested size at a target location, using
@@ -668,6 +705,12 @@ class CreateCommand(BaseCommand):
             app=app
         ))
         self.install_app_resources(app=app)
+
+        print()
+        print('[{app.app_name}] Optimising...'.format(
+            app=app
+        ))
+        self.optimise(app=app)
         print()
 
         print("[{app.app_name}] Created {filename}".format(
