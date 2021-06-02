@@ -199,9 +199,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                             )
                         ),
                         "-o", "appimage",
-                    ] + deploy_deps_args + [
-                        "-l", "/usr/lib/x86_64-linux-gnu/libwebkitgtk-3.0.so.0",
-                    ],
+                    ] + deploy_deps_args,
                     env=env,
                     check=True,
                     cwd=str(self.platform_path)
