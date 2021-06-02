@@ -200,11 +200,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                         ),
                         "-o", "appimage",
                     ] + deploy_deps_args + [
-                        "-l", "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so.37",
-                        "-e", "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.0/MiniBrowser",
-                        "-e", "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.0/WebKitNetworkProcess",
-                        "-e", "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.0/WebKitWebProcess",
-                        "-l", "/usr/lib/x86_64-linux-gnu/webkit2gtk-4.0/injected-bundle/libwebkit2gtkinjectedbundle.so",
+                        "-l", "/usr/lib/x86_64-linux-gnu/libwebkitgtk-3.0.so.0",
                     ],
                     env=env,
                     check=True,
