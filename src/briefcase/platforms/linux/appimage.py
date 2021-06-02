@@ -179,7 +179,8 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
             # in the application, and make sure it is marked for deployment.
             so_folders = set()
             for so_file in self.appdir_path(app).glob('**/*.so'):
-                so_folders.add(so_file.parent)
+                if not so_file.name.startswith(('_cairo', '_gi')):
+                    so_folders.add(so_file.parent)
 
             deploy_deps_args = []
             for folder in sorted(so_folders):
