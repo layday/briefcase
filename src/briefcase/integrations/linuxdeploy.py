@@ -63,16 +63,12 @@ class LinuxDeploy:
         Download and install linuxdeploy.
         """
         try:
-            linuxdeploy_appimage_path = self.command.download_url(
-                url=self.linuxdeploy_download_url,
-                download_path=self.command.tools_path
-            )
-            self.command.os.chmod(str(linuxdeploy_appimage_path), 0o755)
-            for url in self.linuxdeploy_plugin_download_urls:
-                self.command.download_url(
+            for url in [self.linuxdeploy_download_url, *self.linuxdeploy_plugin_download_urls]:
+                path = self.command.download_url(
                     url=url,
                     download_path=self.command.tools_path,
                 )
+                self.command.os.chmod(str(path), 0o755)
         except requests_exceptions.ConnectionError:
             raise NetworkFailure('downloading linuxdeploy AppImage and plugins')
 
