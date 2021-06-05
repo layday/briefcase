@@ -25,7 +25,7 @@ class LinuxDeploy:
     def linuxdeploy_plugin_download_urls(self):
         return [
             'https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh',
-            'https://raw.githubusercontent.com/layday/instawow/feat-webview-gui/gui-webview/linuxdeploy-plugin-instawow-webkit2gtk.sh',
+            'https://raw.githubusercontent.com/layday/instawow/feat-webview-gui/gui-webview/linuxdeploy-plugin-zzzinstawowwebkit2gtk.sh',
         ]
 
     @property
