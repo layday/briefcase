@@ -448,7 +448,12 @@ class CreateCommand(BaseCommand):
         excludes = frozenset({"nslog.py", "lib2to3"})
         compile_ = partial(
             compileall.compile_dir,
-            ddir="", force=True, rx=re.compile(f'({"|".join(excludes)})'), legacy=True, optimize=2
+            ddir="",
+            force=True,
+            rx=re.compile(f'({"|".join(excludes)})'),
+            legacy=True,
+            optimize=2,
+            quiet=1,
         )
 
         app_path = str(self.app_path(app))
