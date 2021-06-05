@@ -22,6 +22,12 @@ class LinuxDeploy:
         )
 
     @property
+    def linuxdeploy_plugin_download_urls(self):
+        return [
+            'https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh',
+        ]
+
+    @property
     def appimage_path(self):
         return self.command.tools_path / self.appimage_name
 
@@ -62,8 +68,13 @@ class LinuxDeploy:
                 download_path=self.command.tools_path
             )
             self.command.os.chmod(str(linuxdeploy_appimage_path), 0o755)
+            for url in self.linuxdeploy_plugin_download_urls:
+                self.command.download_url(
+                    url=url,
+                    download_path=self.command.tools_path,
+                )
         except requests_exceptions.ConnectionError:
-            raise NetworkFailure('downloading linuxdeploy AppImage')
+            raise NetworkFailure('downloading linuxdeploy AppImage and plugins')
 
     def upgrade(self):
         """

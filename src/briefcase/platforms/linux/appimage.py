@@ -179,8 +179,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
             # in the application, and make sure it is marked for deployment.
             so_folders = set()
             for so_file in self.appdir_path(app).glob('**/*.so'):
-                if not so_file.name.startswith(('_cairo', '_gi')):
-                    so_folders.add(so_file.parent)
+                so_folders.add(so_file.parent)
 
             deploy_deps_args = []
             for folder in sorted(so_folders):
@@ -193,13 +192,14 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                     [
                         str(self.linuxdeploy.appimage_path),
                         "--appimage-extract-and-run",
-                        "--appdir={appdir_path}".format(appdir_path=self.appdir_path(app)),
-                        "-d", str(
+                        "--appdir", "{appdir_path}".format(appdir_path=self.appdir_path(app)),
+                        "--desktop-file", str(
                             self.appdir_path(app) / "{app.bundle}.{app.app_name}.desktop".format(
                                 app=app,
                             )
                         ),
-                        "-o", "appimage",
+                        "--plugin", "gtk",
+                        "--output", "appimage",
                     ] + deploy_deps_args,
                     env=env,
                     check=True,
