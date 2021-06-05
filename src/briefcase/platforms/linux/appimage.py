@@ -200,6 +200,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                         ),
                         "--plugin", "gtk",
                         "--output", "appimage",
+                        "-l", "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so.37",
                     ] + deploy_deps_args,
                     env=env,
                     check=True,
