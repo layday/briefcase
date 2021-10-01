@@ -445,12 +445,12 @@ class CreateCommand(BaseCommand):
         import os
         import re
 
-        excludes = frozenset({"nslog.py", "lib2to3"})
+        excludes = re.compile(f"(nslog.py|lib2to3|instawow{re.escape(os.path.sep)}migrations)")
         compile_ = partial(
             compileall.compile_dir,
             ddir="",
             force=True,
-            rx=re.compile(f'({"|".join(excludes)})'),
+            rx=excludes,
             legacy=True,
             optimize=2,
             quiet=1,
@@ -476,7 +476,7 @@ class CreateCommand(BaseCommand):
             glob.iglob(os.path.join(app_packages_path, '**', '*.py'), recursive=True),
             glob.iglob(os.path.join(support_path, '**', '*.py'), recursive=True),
         ):
-            if not any(e in py_file for e in excludes):
+            if not excludes.search(py_file):
                 os.unlink(py_file)
 
     def install_image(self, role, variant, size, source, target):
