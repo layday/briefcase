@@ -441,7 +441,6 @@ class CreateCommand(BaseCommand):
         import compileall
         from functools import partial
         from itertools import chain
-        import glob
         import os
         import re
 
@@ -456,28 +455,42 @@ class CreateCommand(BaseCommand):
             quiet=1,
         )
 
-        app_path = str(self.app_path(app))
-        app_packages_path = str(self.app_packages_path(app))
-        support_path = str(self.support_path(app))
+        app_path: Path = self.app_path(app)
+        app_packages_path: Path = self.app_packages_path(app)
+        support_path: Path = self.support_path(app)
 
         for pycache_folder in chain(
-            glob.iglob(os.path.join(app_path, '**', '__pycache__'), recursive=True),
-            glob.iglob(os.path.join(app_packages_path, '**', '__pycache__'), recursive=True),
-            glob.iglob(os.path.join(support_path, '**', '__pycache__'), recursive=True),
+            app_path.rglob('__pycache__'),
+            app_packages_path.rglob('__pycache__'),
+            support_path.rglob('__pycache__'),
         ):
             shutil.rmtree(pycache_folder)
 
-        compile_(app_path)
-        compile_(app_packages_path)
-        compile_(support_path)
+        compile_(str(app_path))
+        compile_(str(app_packages_path))
+        compile_(str(support_path))
 
         for py_file in chain(
-            glob.iglob(os.path.join(app_path, '**', '*.py'), recursive=True),
-            glob.iglob(os.path.join(app_packages_path, '**', '*.py'), recursive=True),
-            glob.iglob(os.path.join(support_path, '**', '*.py'), recursive=True),
+            app_path.rglob('*.py'),
+            app_packages_path.rglob('*.py'),
+            support_path.rglob('*.py'),
         ):
-            if not excludes.search(py_file):
-                os.unlink(py_file)
+            if not excludes.search(str(py_file)):
+                py_file.unlink()
+
+        shutil.rmtree(app_packages_path / 'bin')
+        shutil.rmtree(app_packages_path / 'include')
+        shutil.rmtree(app_packages_path / 'aiohttp' / '.hash')
+        shutil.rmtree(app_packages_path / 'greenlet' / 'tests')
+        for misc_file in chain(
+            app_packages_path.rglob('*.pyi'),
+            app_packages_path.rglob('*.c'),
+            app_packages_path.rglob('*.h'),
+            app_packages_path.rglob('*.pxd'),
+            app_packages_path.rglob('*.pxi'),
+            app_packages_path.rglob('*.pyx'),
+        ):
+            misc_file.unlink()
 
     def install_image(self, role, variant, size, source, target):
         """
