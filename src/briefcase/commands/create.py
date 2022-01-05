@@ -444,7 +444,7 @@ class CreateCommand(BaseCommand):
         import os
         import re
 
-        excludes = re.compile(f"(nslog.py|lib2to3|instawow{re.escape(os.path.sep)}migrations)")
+        excludes = re.compile(f"(nslog.py|lib2to3|pycparser|instawow{re.escape(os.path.sep)}migrations)")
         compile_ = partial(
             compileall.compile_dir,
             ddir="",
