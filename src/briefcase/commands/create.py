@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import sys
@@ -296,7 +297,7 @@ class CreateCommand(BaseCommand):
             self.cookiecutter(
                 str(cached_template),
                 no_input=True,
-                output_dir=str(output_path),
+                output_dir=os.fsdecode(output_path),
                 checkout=app.template_branch,
                 extra_context=extra_context
             )
@@ -314,7 +315,7 @@ class CreateCommand(BaseCommand):
 
     def install_app_support_package(self, app: BaseConfig):
         """
-        Install the application support packge.
+        Install the application support package.
 
         :param app: The config object for the app
         """
@@ -369,9 +370,10 @@ class CreateCommand(BaseCommand):
             print("Unpacking support package...")
             support_path = self.support_path(app)
             support_path.mkdir(parents=True, exist_ok=True)
+            # TODO: Py3.6 compatibility; os.fsdecode not required in Py3.7
             self.shutil.unpack_archive(
-                str(support_filename),
-                extract_dir=str(support_path)
+                os.fsdecode(support_filename),
+                extract_dir=os.fsdecode(support_path)
             )
         except (shutil.ReadError, EOFError):
             print()
@@ -383,6 +385,15 @@ class CreateCommand(BaseCommand):
 
         :param app: The config object for the app
         """
+
+        target = self.app_packages_path(app)
+
+        # Clear existing dependency directory
+        if target.is_dir():
+            self.shutil.rmtree(target)
+            self.os.mkdir(target)
+
+        # Install  dependencies
         if app.requires:
             try:
                 self.subprocess.run(
@@ -391,7 +402,7 @@ class CreateCommand(BaseCommand):
                         "pip", "install",
                         "--upgrade",
                         "--no-user",
-                        "--target={}".format(self.app_packages_path(app)),
+                        "--target={}".format(target),
                     ] + app.requires,
                     check=True,
                 )
@@ -415,7 +426,7 @@ class CreateCommand(BaseCommand):
                 # Remove existing versions of the code
                 if target.exists():
                     if target.is_dir():
-                        self.shutil.rmtree(str(target))
+                        self.shutil.rmtree(target)
                     else:
                         target.unlink()
 
@@ -423,9 +434,9 @@ class CreateCommand(BaseCommand):
                 if not original.exists():
                     raise MissingAppSources(src)
                 elif original.is_dir():
-                    self.shutil.copytree(str(original), str(target))
+                    self.shutil.copytree(original, target)
                 else:
-                    self.shutil.copy(str(original), str(target))
+                    self.shutil.copy(original, target)
         else:
             print("No sources defined for {app.app_name}.".format(app=app))
 
@@ -597,7 +608,7 @@ class CreateCommand(BaseCommand):
                 # Make sure the target directory exists
                 target.parent.mkdir(parents=True, exist_ok=True)
                 # Copy the source image to the target location
-                self.shutil.copy(str(full_source), str(target))
+                self.shutil.copy(full_source, target)
             else:
                 print(
                     "Unable to find {source_filename} for {full_role}; using default".format(
@@ -692,7 +703,7 @@ class CreateCommand(BaseCommand):
             print("[{app.app_name}] Removing old application bundle...".format(
                 app=app
             ))
-            self.shutil.rmtree(str(bundle_path))
+            self.shutil.rmtree(bundle_path)
 
         print()
         print('[{app.app_name}] Generating application template...'.format(

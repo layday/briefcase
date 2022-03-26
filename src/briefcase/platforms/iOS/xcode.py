@@ -228,7 +228,7 @@ class iOSXcodeBuildCommand(iOSXcodeMixin, BuildCommand):
             )
 
         print()
-        print("Targeting an {device} running iOS {iOS_version} (device UDID {udid})".format(
+        print("Targeting an {device} running {iOS_version} (device UDID {udid})".format(
             device=device,
             iOS_version=iOS_version,
             udid=udid,
@@ -416,6 +416,26 @@ class iOSXcodeRunCommand(iOSXcodeMixin, RunCommand):
                 "Unable to launch app {app.app_name}.".format(
                     app=app
                 )
+            )
+
+        # Start streaming logs for the app.
+        try:
+            print()
+            print("[{app.app_name}] Following simulator log output (type CTRL-C to stop log)...".format(app=app))
+            print("=" * 75)
+            self.subprocess.run(
+                [
+                    "xcrun", "simctl", "spawn", udid,
+                    "log", "stream",
+                    "--style", "compact",
+                    "--predicate", 'senderImagePath ENDSWITH "/{app.formal_name}"'.format(app=app)
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print()
+            raise BriefcaseCommandError(
+                "Unable to start log stream for app {app.app_name}.".format(app=app)
             )
 
         # Preserve the device selection as state.

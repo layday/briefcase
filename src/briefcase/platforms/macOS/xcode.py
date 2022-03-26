@@ -10,8 +10,12 @@ from briefcase.commands import (
 )
 from briefcase.config import BaseConfig
 from briefcase.exceptions import BriefcaseCommandError
-from briefcase.platforms.macOS import macOSMixin, macOSPackageMixin
 from briefcase.integrations.xcode import verify_xcode_install
+from briefcase.platforms.macOS import (
+    macOSMixin,
+    macOSPackageMixin,
+    macOSRunMixin
+)
 
 
 class macOSXcodeMixin(macOSMixin):
@@ -108,28 +112,8 @@ class macOSXcodeBuildCommand(macOSXcodeMixin, BuildCommand):
             )
 
 
-class macOSXcodeRunCommand(macOSXcodeMixin, RunCommand):
+class macOSXcodeRunCommand(macOSRunMixin, macOSXcodeMixin, RunCommand):
     description = "Run a macOS app."
-
-    def run_app(self, app: BaseConfig, **kwargs):
-        """
-        Start the application.
-
-        :param app: The config object for the app
-        :param base_path: The path to the project directory.
-        """
-        print()
-        print('[{app.app_name}] Starting app...'.format(
-            app=app
-        ))
-        try:
-            print()
-            self.subprocess.run(['open', str(self.binary_path(app))], check=True)
-        except subprocess.CalledProcessError:
-            print()
-            raise BriefcaseCommandError(
-                "Unable to start app {app.app_name}.".format(app=app)
-            )
 
 
 class macOSXcodePackageCommand(macOSPackageMixin, macOSXcodeMixin, PackageCommand):

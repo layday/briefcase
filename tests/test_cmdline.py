@@ -14,7 +14,7 @@ from briefcase.exceptions import (
 from briefcase.platforms.linux.appimage import LinuxAppImageCreateCommand
 from briefcase.platforms.macOS.app import (
     macOSAppCreateCommand,
-    macOSAppPublishCommand,
+    macOSAppPublishCommand
 )
 from briefcase.platforms.windows.msi import WindowsMSICreateCommand
 
@@ -205,8 +205,6 @@ def test_bare_command_help(monkeypatch, capsys):
         "usage: briefcase create macOS app [-h] [-v] [-V] [--no-input]\n"
         "\n"
         "Create and populate a macOS app.\n"
-        "\n"
-        "optional arguments:"
     )
 
 
@@ -295,8 +293,6 @@ def test_command_explicit_platform_help(monkeypatch, capsys):
         "usage: briefcase create macOS app [-h] [-v] [-V] [--no-input]\n"
         "\n"
         "Create and populate a macOS app.\n"
-        "\n"
-        "optional arguments:"
     )
 
 
@@ -362,8 +358,6 @@ def test_command_explicit_format_help(monkeypatch, capsys):
         "usage: briefcase create macOS app [-h] [-v] [-V] [--no-input]\n"
         "\n"
         "Create and populate a macOS app.\n"
-        "\n"
-        "optional arguments:"
     )
 
 

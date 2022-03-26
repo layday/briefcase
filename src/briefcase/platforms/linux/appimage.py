@@ -1,3 +1,4 @@
+import os
 import subprocess
 from contextlib import contextmanager
 
@@ -190,26 +191,26 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
             with self.dockerize(app) as docker:
                 docker.run(
                     [
-                        str(self.linuxdeploy.appimage_path),
+                        self.linuxdeploy.appimage_path,
                         "--appimage-extract-and-run",
-                        "--appdir", "{appdir_path}".format(appdir_path=self.appdir_path(app)),
-                        "--desktop-file", str(
+                        "--appdir={appdir_path}".format(appdir_path=self.appdir_path(app)),
+                        "-d", os.fsdecode(
                             self.appdir_path(app) / "{app.bundle}.{app.app_name}.desktop".format(
                                 app=app,
                             )
                         ),
+                        "-o", "appimage",
                         "--plugin", "gtk",
                         "--plugin", "zzzinstawowwebkit2gtk",
-                        "--output", "appimage",
                         "-l", "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so.37",
                     ] + deploy_deps_args,
                     env=env,
                     check=True,
-                    cwd=str(self.platform_path)
+                    cwd=self.platform_path
                 )
 
             # Make the binary executable.
-            self.os.chmod(str(self.binary_path(app)), 0o755)
+            self.os.chmod(self.binary_path(app), 0o755)
         except subprocess.CalledProcessError:
             print()
             raise BriefcaseCommandError(
@@ -245,7 +246,7 @@ class LinuxAppImageRunCommand(LinuxAppImageMixin, RunCommand):
             print()
             self.subprocess.run(
                 [
-                    str(self.binary_path(app)),
+                    os.fsdecode(self.binary_path(app)),
                 ],
                 check=True,
             )

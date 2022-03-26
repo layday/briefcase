@@ -1,11 +1,14 @@
-import subprocess
 import itertools
+import os
+import subprocess
 
 from briefcase.config import BaseConfig
 from briefcase.console import select_option
 from briefcase.exceptions import BriefcaseCommandError
-from briefcase.integrations.xcode import get_identities
-from briefcase.integrations.xcode import verify_command_line_tools_install
+from briefcase.integrations.xcode import (
+    get_identities,
+    verify_command_line_tools_install
+)
 
 try:
     import dmgbuild
@@ -22,8 +25,71 @@ class macOSMixin:
     platform = 'macOS'
 
 
-class macOSPackageMixin:
+class macOSRunMixin:
+    def run_app(self, app: BaseConfig, **kwargs):
+        """
+        Start the application.
 
+        :param app: The config object for the app
+        :param base_path: The path to the project directory.
+        """
+        print()
+        print('[{app.app_name}] Starting app...'.format(
+            app=app
+        ))
+        try:
+            self.subprocess.run(
+                [
+                    'open',
+                    '-n',  # Force a new app to be launched
+                    os.fsdecode(self.binary_path(app)),
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print()
+            raise BriefcaseCommandError(
+                "Unable to start app {app.app_name}.".format(app=app)
+            )
+
+        # Start streaming logs for the app.
+        try:
+            print()
+            print("[{app.app_name}] Following system log output (type CTRL-C to stop log)...".format(app=app))
+            print("=" * 75)
+            # Streaming the system log is... a mess. The system log contains a
+            # *lot* of noise from other processes; even if you filter by
+            # process, there's a lot of macOS-generated noise. It's very
+            # difficult to extract just the "user generated" stdout/err log
+            # messages.
+            #
+            # The following sets up a log stream filter that looks for:
+            #  1. a log sender that matches that app binary; or,
+            #  2. a log sender of libffi, and a process that matches the app binary.
+            # Case (1) works for pre-Python 3.9 static linked binaries.
+            # Case (2) works for Python 3.9+ dynamic linked binaries.
+            self.subprocess.run(
+                [
+                    "log",
+                    "stream",
+                    "--style", "compact",
+                    "--predicate",
+                    'senderImagePath=="{sender}"'
+                    ' OR (processImagePath=="{sender}"'
+                    ' AND senderImagePath=="/usr/lib/libffi.dylib")'.format(
+                        sender=os.fsdecode(self.binary_path(app) / "Contents" / "MacOS" / app.formal_name)
+                    )
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError:
+            print()
+            raise BriefcaseCommandError(
+                "Unable to start log stream for app {app.app_name}.".format(app=app)
+            )
+
+
+class macOSPackageMixin:
     @property
     def packaging_formats(self):
         return ['app', 'dmg']
@@ -113,8 +179,8 @@ class macOSPackageMixin:
                 [
                     'codesign',
                     '--sign', identity,
-                    '--entitlements', str(entitlements),
-                    '--deep', str(path),
+                    '--entitlements', os.fsdecode(entitlements),
+                    '--deep', os.fsdecode(path),
                     '--force',
                     '--options', 'runtime',
                 ],
@@ -180,7 +246,7 @@ class macOSPackageMixin:
             print('[{app.app_name}] Building DMG...'.format(app=app))
 
             dmg_settings = {
-                'files': [str(self.binary_path(app))],
+                'files': [os.fsdecode(self.binary_path(app))],
                 'symlinks': {'Applications': '/Applications'},
                 'icon_locations': {
                     '{app.formal_name}.app'.format(app=app): (75, 75),
@@ -215,14 +281,14 @@ class macOSPackageMixin:
                     icon_filename = None
 
             if icon_filename:
-                dmg_settings['icon'] = str(icon_filename)
+                dmg_settings['icon'] = os.fsdecode(icon_filename)
 
             try:
                 image_filename = self.base_path / '{image}.png'.format(
                     image=app.installer_background
                 )
                 if image_filename.exists():
-                    dmg_settings['background'] = str(image_filename)
+                    dmg_settings['background'] = os.fsdecode(image_filename)
                 else:
                     print("Can't find {filename}.png for DMG background".format(
                         filename=app.installer_background
@@ -232,7 +298,7 @@ class macOSPackageMixin:
                 pass
 
             self.dmgbuild.build_dmg(
-                filename=str(self.distribution_path(app, packaging_format=packaging_format)),
+                filename=os.fsdecode(self.distribution_path(app, packaging_format=packaging_format)),
                 volume_name='{app.formal_name} {app.version}'.format(app=app),
                 settings=dmg_settings
             )

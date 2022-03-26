@@ -1,5 +1,5 @@
+import os
 import tempfile
-import subprocess
 from pathlib import Path
 
 from briefcase.commands import (
@@ -11,8 +11,11 @@ from briefcase.commands import (
     UpdateCommand
 )
 from briefcase.config import BaseConfig
-from briefcase.exceptions import BriefcaseCommandError
-from briefcase.platforms.macOS import macOSMixin, macOSPackageMixin
+from briefcase.platforms.macOS import (
+    macOSMixin,
+    macOSPackageMixin,
+    macOSRunMixin
+)
 
 
 class macOSAppMixin(macOSMixin):
@@ -47,14 +50,16 @@ class macOSAppCreateCommand(macOSAppMixin, CreateCommand):
         super().install_app_support_package(app)
 
         # keep only Python lib from support package
-        lib_path = str(self.support_path(app).parent / 'Support' / 'Python' / 'Resources' / 'lib')
+        lib_path = self.support_path(app).parent / 'Support' / 'Python' / 'Resources' / 'lib'
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            self.shutil.move(lib_path, tmpdir)
-            self.shutil.rmtree(str(self.support_path(app)))
+            # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
+            self.shutil.move(os.fsdecode(lib_path), os.fsdecode(tmpdir))
+            self.shutil.rmtree(self.support_path(app))
 
-            self.os.makedirs(str(Path(lib_path).parent))
-            self.shutil.move(str(Path(tmpdir) / 'lib'), lib_path)
+            self.os.makedirs(Path(lib_path).parent)
+            # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
+            self.shutil.move(os.fsdecode(Path(tmpdir) / 'lib'), os.fsdecode(lib_path))
 
 
 class macOSAppUpdateCommand(macOSAppMixin, UpdateCommand):
@@ -65,34 +70,8 @@ class macOSAppBuildCommand(macOSAppMixin, BuildCommand):
     description = "Build a macOS app."
 
 
-class macOSAppRunCommand(macOSAppMixin, RunCommand):
+class macOSAppRunCommand(macOSRunMixin, macOSAppMixin, RunCommand):
     description = "Run a macOS app."
-
-    def run_app(self, app: BaseConfig, **kwargs):
-        """
-        Start the application.
-
-        :param app: The config object for the app
-        :param base_path: The path to the project directory.
-        """
-        print()
-        print('[{app.app_name}] Starting app...'.format(
-            app=app
-        ))
-        try:
-            print()
-            self.subprocess.run(
-                [
-                    'open',
-                    str(self.binary_path(app)),
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError:
-            print()
-            raise BriefcaseCommandError(
-                "Unable to start app {app.app_name}.".format(app=app)
-            )
 
 
 class macOSAppPackageCommand(macOSPackageMixin, macOSAppMixin, PackageCommand):
