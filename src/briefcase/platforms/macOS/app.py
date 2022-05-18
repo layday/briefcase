@@ -14,7 +14,8 @@ from briefcase.config import BaseConfig
 from briefcase.platforms.macOS import (
     macOSMixin,
     macOSPackageMixin,
-    macOSRunMixin
+    macOSRunMixin,
+    macOSSigningMixin
 )
 
 
@@ -22,12 +23,11 @@ class macOSAppMixin(macOSMixin):
     output_format = 'app'
 
     def binary_path(self, app):
-        return self.bundle_path(app) / '{app.formal_name}.app'.format(app=app)
+        return self.bundle_path(app) / f'{app.formal_name}.app'
 
     def distribution_path(self, app, packaging_format):
         if packaging_format == 'dmg':
-            return self.platform_path / '{app.formal_name}-{app.version}.dmg'.format(
-                app=app)
+            return self.platform_path / f'{app.formal_name}-{app.version}.dmg'
         else:
             return self.binary_path(app)
 
@@ -66,8 +66,22 @@ class macOSAppUpdateCommand(macOSAppMixin, UpdateCommand):
     description = "Update an existing macOS app."
 
 
-class macOSAppBuildCommand(macOSAppMixin, BuildCommand):
+class macOSAppBuildCommand(macOSAppMixin, macOSSigningMixin, BuildCommand):
     description = "Build a macOS app."
+
+    def build_app(self, app: BaseConfig, **kwargs):
+        """
+        Build the macOS app.
+
+        :param app: The application to build
+        """
+        # macOS apps don't have anything to compile, but they do need to be
+        # signed to be able to execute on M1 hardware - even if it's only an
+        # adhoc signing identity. Apply an adhoc signing identity to the
+        # app bundle.
+        self.logger.info()
+        self.logger.info(f'[{app.app_name}] Adhoc signing app...')
+        self.sign_app(app=app, identity="-")
 
 
 class macOSAppRunCommand(macOSRunMixin, macOSAppMixin, RunCommand):

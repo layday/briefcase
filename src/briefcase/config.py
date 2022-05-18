@@ -199,7 +199,12 @@ def is_valid_bundle_identifier(bundle):
         return False
 
     for part in bundle.split('.'):
-        if is_reserved_keyword(part):
+        # *Some* 2-letter country codes are valid identifiers,
+        # even though they're reserved words; see:
+        #    https://www.oracle.com/java/technologies/javase/codeconventions-namingconventions.html
+        # `.do` *should* be on this list, but as of Apr 2022, `.do` breaks
+        # the Android build tooling.
+        if is_reserved_keyword(part) and part not in {'in', 'is'}:
             return False
 
     return True
@@ -282,15 +287,13 @@ class GlobalConfig(BaseConfig):
         # Version number is PEP440 compliant:
         if not is_pep440_canonical_version(self.version):
             raise BriefcaseConfigError(
-                "Version number ({self.version}) is not valid.\n\n"
+                f"Version number ({self.version}) is not valid.\n\n"
                 "Version numbers must be PEP440 compliant; "
-                "see https://www.python.org/dev/peps/pep-0440/ for details.".format(
-                    self=self
-                )
+                "see https://www.python.org/dev/peps/pep-0440/ for details."
             )
 
     def __repr__(self):
-        return "<{self.project_name} v{self.version} GlobalConfig>".format(self=self)
+        return f"<{self.project_name} v{self.version} GlobalConfig>"
 
 
 class AppConfig(BaseConfig):
@@ -457,7 +460,7 @@ def parse_config(config_file, platform, output_format):
 
         global_config = pyproject['tool']['briefcase']
     except tomllib.TOMLDecodeError as e:
-        raise BriefcaseConfigError('Invalid pyproject.toml: {e}'.format(e=e))
+        raise BriefcaseConfigError(f'Invalid pyproject.toml: {e}')
     except KeyError:
         raise BriefcaseConfigError('No tool.briefcase section in pyproject.toml')
 

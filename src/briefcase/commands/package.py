@@ -60,17 +60,18 @@ class PackageCommand(BaseCommand):
             **full_options(state, options)
         )
 
-        print()
-        print("[{app.app_name}] Packaged {filename}".format(
-            app=app,
-            filename=self.distribution_path(
-                app,
-                packaging_format=packaging_format,
-            ).relative_to(self.base_path),
-        ))
+        filename = self.distribution_path(app, packaging_format=packaging_format).relative_to(self.base_path)
+        self.logger.info()
+        self.logger.info(f"[{app.app_name}] Packaged {filename}")
         return state
 
     def add_options(self, parser):
+        parser.add_argument(
+            '-u',
+            '--update',
+            action="store_true",
+            help='Update the app before building'
+        )
         parser.add_argument(
             '-p',
             '--packaging-format',

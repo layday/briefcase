@@ -20,6 +20,10 @@ class DummyCreateCommand(CreateCommand):
     def __init__(self, *args, support_file=None, git=None, **kwargs):
         super().__init__(*args, **kwargs)
 
+        # Override the host properties
+        self.host_arch = 'gothic'
+        self.host_os = 'c64'
+
         # If a test sets this property, the tool verification step will
         # fail.
         self._missing_tool = None
@@ -31,17 +35,25 @@ class DummyCreateCommand(CreateCommand):
         self.support_file = support_file
         self.input = DummyConsole()
 
+    @property
+    def support_package_url_query(self):
+        """
+        The query arguments to use in a support package query request.
+        """
+        return [
+            ('platform', self.platform),
+            ('version', self.python_version_tag),
+            ('arch', self.host_arch),
+        ]
+
     def bundle_path(self, app):
-        return self.platform_path / '{app.app_name}.bundle'.format(app=app)
+        return self.platform_path / f'{app.app_name}.bundle'
 
     def binary_path(self, app):
-        return self.platform_path / '{app.app_name}.binary'.format(app=app)
+        return self.platform_path / f'{app.app_name}.binary'
 
     def distribution_path(self, app, packaging_format):
-        return self.platform_path / '{app.app_name}.dummy.{packaging_format}'.format(
-            app=app,
-            packaging_format=packaging_format,
-        )
+        return self.platform_path / f'{app.app_name}.dummy.{packaging_format}'
 
     # Hard code the python version to make testing easier.
     @property
@@ -134,6 +146,9 @@ def myapp():
         version='1.2.3',
         description='This is a simple app',
         sources=['src/my_app'],
+        url='https://example.com',
+        author='First Last',
+        author_email='first@example.com',
     )
 
 
@@ -142,7 +157,7 @@ def bundle_path(myapp, tmp_path):
     # Return the bundle path for the app; however, as a side effect,
     # ensure that the app, app_packages and support target directories
     # exist, and the briefcase index file has been created.
-    bundle_path = tmp_path / 'tester' / '{myapp.app_name}.bundle'.format(myapp=myapp)
+    bundle_path = tmp_path / 'tester' / f'{myapp.app_name}.bundle'
     (bundle_path / 'path' / 'to' / 'app').mkdir(parents=True, exist_ok=True)
     (bundle_path / 'path' / 'to' / 'app_packages').mkdir(parents=True, exist_ok=True)
     (bundle_path / 'path' / 'to' / 'support').mkdir(parents=True, exist_ok=True)
