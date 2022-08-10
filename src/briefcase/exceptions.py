@@ -1,10 +1,23 @@
-
 class BriefcaseError(Exception):
     def __init__(self, error_code):
         self.error_code = error_code
 
 
-class NoCommandError(BriefcaseError):
+class HelpText(BriefcaseError):
+    """Exceptions that contain help text and shouldn't be displayed to users as
+    an error."""
+
+
+class InfoHelpText(HelpText):
+    def __init__(self, msg):
+        super().__init__(0)
+        self.msg = msg
+
+    def __str__(self):
+        return self.msg
+
+
+class NoCommandError(HelpText):
     def __init__(self, msg):
         super().__init__(-10)
         self.msg = msg
@@ -13,19 +26,15 @@ class NoCommandError(BriefcaseError):
         return self.msg
 
 
-class ShowOutputFormats(BriefcaseError):
+class ShowOutputFormats(InfoHelpText):
     def __init__(self, platform, default, choices):
-        super().__init__(0)
+        super().__init__(
+            f"Available formats for {platform}: {', '.join(sorted(choices))}\n"
+            f"Default format: {default}"
+        )
         self.platform = platform
         self.default = default
         self.choices = choices
-
-    def __str__(self):
-        choices = ', '.join(sorted(self.choices))
-        return (
-            f"Available formats for {self.platform}: {choices}\n"
-            f"Default format: {self.default}"
-        )
 
 
 class InvalidFormatError(BriefcaseError):
@@ -35,7 +44,7 @@ class InvalidFormatError(BriefcaseError):
         self.choices = choices
 
     def __str__(self):
-        choices = ', '.join(sorted(self.choices))
+        choices = ", ".join(sorted(self.choices))
         return f"Invalid format '{self.requested}'; (choose from: {choices})"
 
 

@@ -1,16 +1,13 @@
-=============
-MSI Installer
-=============
+===========
+Windows App
+===========
 
-An MSI installer is a common format used for the installation, maintenance,
-and removal of Windows software. It contains the files to be distributed, along
-with metadata supporting the files to be installed, including details such as
-registry entries. It includes a GUI installer, and automated generation of
-the uninstallation sequence.
+A Windows app is a stub binary, allow with a collection of folders taht contain
+the Python code for the app and the Python runtime libraries.
 
-Briefcase uses the `WiX Toolset <https://wixtoolset.org/>`__ to build
-installers. WiX, in turn, requires that .NET Framework 3.5 is enabled.
-To ensure .NET Framework 3.5 is enabled:
+Briefcase uses the `WiX Toolset <https://wixtoolset.org/>`__ to build an MSI
+installer for a Windows App. WiX, in turn, requires that .NET Framework 3.5 is
+enabled. To ensure .NET Framework 3.5 is enabled:
 
     1. Open the Windows Control Panel
     2. Traverse to Programs -> Programs and Features
@@ -20,12 +17,19 @@ To ensure .NET Framework 3.5 is enabled:
 Icon format
 ===========
 
-MSI installers use ``.ico`` format icons.
+Windows apps installers use multiformat ``.ico`` icons; these icons should
+contain images in the following sizes:
+
+* 16x16
+* 32x32
+* 48x48
+* 64x64
+* 256x256
 
 Splash Image format
 ===================
 
-MSI installers do not support splash screens or installer images.
+Windows Apps do not support splash screens or installer images.
 
 Application configuration
 =========================
@@ -43,7 +47,8 @@ installer; however, they are installed once and shared between all users on a
 computer.
 
 If ``true`` the installer will attempt to install the app as a per-machine app,
-available to all users. Defaults to a per-user install.
+available to all users. If ``false``, the installer will install as a per-user
+app. If undefined the installer will ask the user for their preference.
 
 ``version_triple``
 ------------------
@@ -66,14 +71,3 @@ pre, post and dev version indicators), padding with zeros if necessary:
 However, if you need to override this default value, you can define
 ``version_triple`` in your app settings. If provided, this value will be used
 in the MSI configuration file instead of the auto-generated value.
-
-Features
-========
-
-Briefcase produced MSI installers do not require elevated privileges for
-installation; they default to *per-user* installs. The installer can be
-installed for all users using the CLI, with:
-
-.. code-block::
-
-    > msiexec.exe /i <msi-filename> MSIINSTALLPERUSER=""

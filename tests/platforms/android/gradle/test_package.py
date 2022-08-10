@@ -10,7 +10,7 @@ from briefcase.platforms.android.gradle import GradlePackageCommand
 @pytest.fixture
 def package_command(tmp_path, first_app_config):
     command = GradlePackageCommand(base_path=tmp_path / "base_path")
-    command.dot_briefcase_path = tmp_path / ".briefcase"
+    command.data_path = tmp_path / "briefcase"
     command.android_sdk = MagicMock()
     command.os = MagicMock()
     command.os.environ = {}
@@ -21,20 +21,21 @@ def package_command(tmp_path, first_app_config):
 
 
 def test_packaging_formats(package_command):
-    assert package_command.packaging_formats == ['aab']
+    assert package_command.packaging_formats == ["aab"]
 
 
 def test_default_packaging_format(package_command):
-    assert package_command.default_packaging_format == 'aab'
+    assert package_command.default_packaging_format == "aab"
 
 
 @pytest.mark.parametrize(
-    "host_os,gradlew_name", [("Windows", "gradlew.bat"), ("NonWindows", "gradlew")],
+    "host_os,gradlew_name",
+    [("Windows", "gradlew.bat"), ("NonWindows", "gradlew")],
 )
 def test_execute_gradle(package_command, first_app_config, host_os, gradlew_name):
     """Validate that package_app() will launch `gradlew bundleRelease` with the
-    appropriate environment & cwd, and that it will use `gradlew.bat` on Windows
-    but `gradlew` elsewhere."""
+    appropriate environment & cwd, and that it will use `gradlew.bat` on
+    Windows but `gradlew` elsewhere."""
     # Mock out `host_os` so we can validate which name is used for gradlew.
     package_command.host_os = host_os
     # Create mock environment with `key`, which we expect to be preserved, and
@@ -45,6 +46,8 @@ def test_execute_gradle(package_command, first_app_config, host_os, gradlew_name
         [
             package_command.bundle_path(first_app_config) / gradlew_name,
             "bundleRelease",
+            "--console",
+            "plain",
         ],
         cwd=package_command.bundle_path(first_app_config),
         env=package_command.android_sdk.env,
@@ -57,7 +60,8 @@ def test_print_gradle_errors(package_command, first_app_config):
     into exception text."""
     # Create a mock subprocess that crashes, printing text partly in non-ASCII.
     package_command.subprocess.run.side_effect = CalledProcessError(
-        returncode=1, cmd=["ignored"],
+        returncode=1,
+        cmd=["ignored"],
     )
     with pytest.raises(BriefcaseCommandError):
         package_command.package_app(first_app_config)

@@ -4,16 +4,33 @@ on:
   push:
     branches:
       - main
+env:
+  python_version: '3.9'
 
 jobs:
+  pre-commit:
+    name: Pre-commit code style checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v3.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v3.1.2
+        with:
+          python-version: ${{ env.python_version }}
+      - name: Lint with Pre-commit
+        uses: pre-commit/action@v2.0.3
+
   beefore:
     name: Pre-test checks
+    needs: pre-commit
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
       matrix:
         task:
-        - 'flake8'
         - 'towncrier-check'
         - 'docs'
         - 'package'
@@ -26,10 +43,10 @@ jobs:
     - uses: actions/checkout@v3
       with:
         fetch-depth: 0
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v2
+    - name: Set up Python
+      uses: actions/setup-python@v3.1.2
       with:
-        python-version: "3.9"
+        python-version: ${{ env.python_version }}
     - name: Install dependencies
       run: |
         pip install --upgrade pip
@@ -46,7 +63,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python 3.7
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v3.1.2
       with:
         python-version: "3.7"
     - name: Install dependencies
@@ -79,7 +96,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v3.1.2
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
@@ -101,10 +118,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - uses: actions/checkout@v3
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v2
+    - name: Set up Python
+      uses: actions/setup-python@v3.1.2
       with:
-        python-version: "3.9"
+        python-version: ${{ env.python_version }}
     - name: Install dependencies
       run: |
         pip install --upgrade pip
@@ -120,18 +137,23 @@ jobs:
     strategy:
       max-parallel: 4
       matrix:
-        platform: ['macos-latest', 'windows-latest', 'ubuntu-latest']
+        platform: ['macos-latest', 'windows-latest', 'ubuntu-18.04']
         framework: ['toga', 'pyside2', 'pyside6', 'ppb']
         include:
         - platform: macos-latest
+          briefcase-data-dir: ~/Library/Caches/org.beeware.briefcase
           pip-cache-dir: ~/Library/Caches/pip
           docker-cache-dir: ~/Library/Containers/com.docker.docker/Data/vms/0/
         - platform: windows-latest
+          briefcase-data-dir: ~\AppData\Local\BeeWare\briefcase\Cache
           pip-cache-dir: ~\AppData\Local\pip\Cache
           docker-cache-dir: C:\ProgramData\DockerDesktop
-        - platform: ubuntu-latest
+        - platform: ubuntu-18.04
+          briefcase-data-dir: ~/.cache/briefcase
           pip-cache-dir: ~/.cache/pip
-          docker-cache-dir: /var/lib/docker
+          briefcase-args: --no-docker
+          # cache action cannot cache docker images (actions/cache#31)
+          # docker-cache-dir: /var/lib/docker
     runs-on: ${{ matrix.platform }}
     steps:
     - name: Cache Briefcase tools
@@ -139,15 +161,20 @@ jobs:
       with:
         key: briefcase-${{ matrix.platform }}
         path: |
-          ~/.briefcase
           ~/.cookiecutters
+          ${{ matrix.briefcase-data-dir }}
           ${{ matrix.pip-cache-dir }}
           ${{ matrix.docker-cache-dir }}
     - uses: actions/checkout@v3
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v2
+    - name: Set up Python
+      uses: actions/setup-python@v3.1.2
       with:
-        python-version: "3.9"
+        python-version: ${{ env.python_version }}
+    - name: Install dependencies
+      if: matrix.platform == 'ubuntu-18.04'
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 python3-dev libgirepository1.0-dev libcairo2-dev pkg-config
     - name: Install dependencies
       run: |
         pip install --upgrade pip
@@ -155,4 +182,4 @@ jobs:
         pip install tox
     - name: Test
       run: |
-        tox -e verify-${{ matrix.framework }}
+        tox -e verify-${{ matrix.framework }} -- ${{ matrix.briefcase-args }}

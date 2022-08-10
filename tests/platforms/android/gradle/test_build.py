@@ -10,7 +10,7 @@ from briefcase.platforms.android.gradle import GradleBuildCommand
 @pytest.fixture
 def build_command(tmp_path, first_app_config):
     command = GradleBuildCommand(base_path=tmp_path / "base_path")
-    command.dot_briefcase_path = tmp_path / ".briefcase"
+    command.data_path = tmp_path / "briefcase"
     command.android_sdk = MagicMock()
     command.os = MagicMock()
     command.os.environ = {}
@@ -21,12 +21,13 @@ def build_command(tmp_path, first_app_config):
 
 
 @pytest.mark.parametrize(
-    "host_os,gradlew_name", [("Windows", "gradlew.bat"), ("NonWindows", "gradlew")],
+    "host_os,gradlew_name",
+    [("Windows", "gradlew.bat"), ("NonWindows", "gradlew")],
 )
 def test_execute_gradle(build_command, first_app_config, host_os, gradlew_name):
     """Validate that build_app() will launch `gradlew assembleDebug` with the
-    appropriate environment & cwd, and that it will use `gradlew.bat` on Windows
-    but `gradlew` elsewhere."""
+    appropriate environment & cwd, and that it will use `gradlew.bat` on
+    Windows but `gradlew` elsewhere."""
     # Mock out `host_os` so we can validate which name is used for gradlew.
     build_command.host_os = host_os
     # Create mock environment with `key`, which we expect to be preserved, and
@@ -37,6 +38,8 @@ def test_execute_gradle(build_command, first_app_config, host_os, gradlew_name):
         [
             build_command.bundle_path(first_app_config) / gradlew_name,
             "assembleDebug",
+            "--console",
+            "plain",
         ],
         cwd=build_command.bundle_path(first_app_config),
         env=build_command.android_sdk.env,
@@ -49,7 +52,8 @@ def test_print_gradle_errors(build_command, first_app_config):
     into exception text."""
     # Create a mock subprocess that crashes, printing text partly in non-ASCII.
     build_command.subprocess.run.side_effect = CalledProcessError(
-        returncode=1, cmd=["ignored"],
+        returncode=1,
+        cmd=["ignored"],
     )
     with pytest.raises(BriefcaseCommandError):
         build_command.build_app(first_app_config)
