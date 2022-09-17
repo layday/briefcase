@@ -5,6 +5,7 @@ from pathlib import Path
 from briefcase.commands import (
     BuildCommand,
     CreateCommand,
+    OpenCommand,
     PackageCommand,
     PublishCommand,
     RunCommand,
@@ -21,6 +22,9 @@ from briefcase.platforms.macOS import (
 
 class macOSAppMixin(macOSMixin):
     output_format = "app"
+
+    def project_path(self, app):
+        return self.binary_path(app) / "Contents"
 
     def binary_path(self, app):
         return self.bundle_path(app) / f"{app.formal_name}.app"
@@ -45,23 +49,32 @@ class macOSAppCreateCommand(macOSAppMixin, CreateCommand):
         """
         super().install_app_support_package(app)
 
-        # keep only Python lib from support package
+        # Legacy support for the structure of pre-dynamic loading support packages.
+        # Keep only Python lib from the (old) support package. If the lib folder
+        # doesn't exist, then it's a new dynamic-loading support package.
         lib_path = (
             self.support_path(app).parent / "Support" / "Python" / "Resources" / "lib"
         )
+        if lib_path.exists():
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
+                self.shutil.move(os.fsdecode(lib_path), os.fsdecode(tmpdir))
+                self.shutil.rmtree(self.support_path(app))
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
-            self.shutil.move(os.fsdecode(lib_path), os.fsdecode(tmpdir))
-            self.shutil.rmtree(self.support_path(app))
-
-            self.os.makedirs(Path(lib_path).parent)
-            # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
-            self.shutil.move(os.fsdecode(Path(tmpdir) / "lib"), os.fsdecode(lib_path))
+                self.os.makedirs(Path(lib_path).parent)
+                # TODO: Py3.8 compatibility; os.fsdecode not required in Py3.9
+                self.shutil.move(
+                    os.fsdecode(Path(tmpdir) / "lib"),
+                    os.fsdecode(lib_path),
+                )
 
 
-class macOSAppUpdateCommand(macOSAppMixin, UpdateCommand):
+class macOSAppUpdateCommand(macOSAppCreateCommand, UpdateCommand):
     description = "Update an existing macOS app."
+
+
+class macOSAppOpenCommand(macOSAppMixin, OpenCommand):
+    description = "Open the app bundle folder for a macOS app."
 
 
 class macOSAppBuildCommand(macOSAppMixin, macOSSigningMixin, BuildCommand):
@@ -95,6 +108,7 @@ class macOSAppPublishCommand(macOSAppMixin, PublishCommand):
 # Declare the briefcase command bindings
 create = macOSAppCreateCommand  # noqa
 update = macOSAppUpdateCommand  # noqa
+open = macOSAppOpenCommand  # noqa
 build = macOSAppBuildCommand  # noqa
 run = macOSAppRunCommand  # noqa
 package = macOSAppPackageCommand  # noqa

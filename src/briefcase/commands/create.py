@@ -10,7 +10,6 @@ from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from cookiecutter import exceptions as cookiecutter_exceptions
-from requests import exceptions as requests_exceptions
 
 import briefcase
 from briefcase.config import BaseConfig
@@ -375,9 +374,10 @@ class CreateCommand(BaseCommand):
 
                 # Download the support file, caching the result
                 # in the user's briefcase support cache directory.
-                return self.download_url(
+                return self.download_file(
                     url=support_package_url,
                     download_path=download_path,
+                    role="support package",
                 )
             else:
                 return Path(support_package_url)
@@ -391,9 +391,6 @@ class CreateCommand(BaseCommand):
                     host_arch=self.host_arch,
                 ) from e
 
-        except requests_exceptions.ConnectionError as e:
-            raise NetworkFailure("downloading support package") from e
-
     def _write_requirements_file(self, app: BaseConfig, requirements_path):
         """Configure application dependencies by writing a requirements.txt
         file.
@@ -402,11 +399,34 @@ class CreateCommand(BaseCommand):
         :param requirements_path: The full path to a requirements.txt file that
             will be written.
         """
+        # Windows allows both / and \ as a path separator in requirements.
+        separators = [os.sep]
+        if os.altsep:
+            separators.append(os.altsep)
+
         with self.input.wait_bar("Writing requirements file..."):
             with (requirements_path).open("w", encoding="utf-8") as f:
                 if app.requires:
                     for requirement in app.requires:
+                        # If the requirement is a local path, convert it to
+                        # absolute, because Flatpak moves the requirements file
+                        # to a different place before using it.
+                        if any(sep in requirement for sep in separators) and (
+                            not _has_url(requirement)
+                        ):
+                            # We use os.path.abspath() rather than Path.resolve()
+                            # because we *don't* want Path's symlink resolving behavior.
+                            requirement = os.path.abspath(self.base_path / requirement)
                         f.write(f"{requirement}\n")
+
+    def _extra_pip_args(self, app: BaseConfig):
+        """Any additional arguments that must be passed to pip when installing
+        packages.
+
+        :param app: The app configuration
+        :returns: A list of additional arguments
+        """
+        return []
 
     def _install_app_dependencies(self, app: BaseConfig, app_packages_path):
         """Install dependencies for the app with pip.
@@ -423,6 +443,18 @@ class CreateCommand(BaseCommand):
         # Install dependencies
         if app.requires:
             with self.input.wait_bar("Installing app dependencies..."):
+                # If there is a support package provided, add the cross-platform
+                # folder of the support package to the PYTHONPATH. This allows
+                # a support package to specify a sitecustomize.py that will make
+                # pip behave as if it was being run on the target platform.
+                pip_kwargs = {}
+                try:
+                    pip_kwargs["env"] = {
+                        "PYTHONPATH": str(self.support_path(app) / "platform-site"),
+                    }
+                except KeyError:
+                    pass
+
                 try:
                     self.subprocess.run(
                         [
@@ -434,8 +466,10 @@ class CreateCommand(BaseCommand):
                             "--no-user",
                             f"--target={app_packages_path}",
                         ]
+                        + self._extra_pip_args(app)
                         + app.requires,
                         check=True,
+                        **pip_kwargs,
                     )
                 except subprocess.CalledProcessError as e:
                     raise DependencyInstallError() from e
@@ -690,6 +724,39 @@ class CreateCommand(BaseCommand):
                     target=self.bundle_path(app) / target,
                 )
 
+    def cleanup_app_content(self, app: BaseConfig):
+        """Remove any content not needed by the final app bundle.
+
+        :param app: The config object for the app
+        """
+        try:
+            # Retrieve any cleanup paths defined by the app template
+            paths_to_remove = self.cleanup_paths(app)
+        except KeyError:
+            paths_to_remove = []
+
+        try:
+            # Add any user-specified paths, expanded using the app as template context.
+            paths_to_remove.extend([glob.format(app=app) for glob in app.cleanup_paths])
+        except AttributeError:
+            pass
+
+        if paths_to_remove:
+            with self.input.wait_bar("Removing unneeded app bundle content..."):
+                for glob in paths_to_remove:
+                    # Expand each glob into a full list of files that actually exist
+                    # on the file system.
+                    for path in self.bundle_path(app).glob(glob):
+                        relative_path = path.relative_to(self.bundle_path(app))
+                        if path.is_dir():
+                            self.logger.info(f"Removing directory {relative_path}")
+                            self.shutil.rmtree(path)
+                        else:
+                            self.logger.info(f"Removing {relative_path}")
+                            path.unlink()
+        else:
+            self.logger.info("No app content clean up required.")
+
     def create_app(self, app: BaseConfig, **options):
         """Create an application bundle.
 
@@ -727,6 +794,9 @@ class CreateCommand(BaseCommand):
         self.logger.info("Installing application resources...", prefix=app.app_name)
         self.install_app_resources(app=app)
 
+        self.logger.info("Removing unneeded app content...", prefix=app.app_name)
+        self.cleanup_app_content(app=app)
+
         self.logger.info("Optimising...", prefix=app.app_name)
         self.optimise(app=app)
 
@@ -755,3 +825,18 @@ class CreateCommand(BaseCommand):
                 state = self.create_app(app, **full_options(state, options))
 
         return state
+
+
+# Detects any of the URL schemes supported by pip
+# (https://pip.pypa.io/en/stable/topics/vcs-support/).
+def _has_url(requirement):
+    return any(
+        f"{scheme}:" in requirement
+        for scheme in (
+            ["http", "https", "file", "ftp"]
+            + ["git+file", "git+https", "git+ssh", "git+http", "git+git", "git"]
+            + ["hg+file", "hg+http", "hg+https", "hg+ssh", "hg+static-http"]
+            + ["svn", "svn+svn", "svn+http", "svn+https", "svn+ssh"]
+            + ["bzr+http", "bzr+https", "bzr+ssh", "bzr+sftp", "bzr+ftp", "bzr+lp"]
+        )
+    )

@@ -5,6 +5,7 @@ import time
 from briefcase.commands import (
     BuildCommand,
     CreateCommand,
+    OpenCommand,
     PackageCommand,
     PublishCommand,
     RunCommand,
@@ -59,6 +60,9 @@ class GradleMixin:
             self.platform_path / self.output_format / safe_formal_name(app.formal_name)
         )
 
+    def project_path(self, app):
+        return self.bundle_path(app)
+
     def binary_path(self, app):
         return (
             self.bundle_path(app)
@@ -90,10 +94,12 @@ class GradleMixin:
         this system, downloading tools as needed."""
         super().verify_tools()
         self.android_sdk = AndroidSDK.verify(self)
+        if not self.is_clone:
+            self.logger.add_log_file_extra(self.android_sdk.list_packages)
 
 
 class GradleCreateCommand(GradleMixin, CreateCommand):
-    description = "Create and populate an Android APK."
+    description = "Create and populate an Android Gradle project."
 
     def output_format_template_context(self, app: BaseConfig):
         """Additional template context required by the output format.
@@ -118,8 +124,12 @@ class GradleCreateCommand(GradleMixin, CreateCommand):
         }
 
 
-class GradleUpdateCommand(GradleMixin, UpdateCommand):
-    description = "Update an existing Android debug APK."
+class GradleUpdateCommand(GradleCreateCommand, UpdateCommand):
+    description = "Update an existing Android Gradle project."
+
+
+class GradleOpenCommand(GradleMixin, OpenCommand):
+    description = "Open the folder for an Android Gradle project."
 
 
 class GradleBuildCommand(GradleMixin, BuildCommand):
@@ -170,7 +180,7 @@ class GradleRunCommand(GradleMixin, RunCommand):
         """Start the application.
 
         :param app: The config object for the app
-        :param device: The device to target. If ``None``, the user will
+        :param device_or_avd: The device to target. If ``None``, the user will
             be asked to re-run the command selecting a specific device.
         """
         device, name, avd = self.android_sdk.select_target_device(
@@ -267,6 +277,7 @@ class GradlePublishCommand(GradleMixin, PublishCommand):
 
 # Declare the briefcase command bindings
 create = GradleCreateCommand  # noqa
+open = GradleOpenCommand  # noqa
 update = GradleUpdateCommand  # noqa
 build = GradleBuildCommand  # noqa
 run = GradleRunCommand  # noqa
