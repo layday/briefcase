@@ -2,7 +2,9 @@ import os
 import re
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
+from signal import SIGTERM
 from zipfile import ZipFile
 
 from briefcase.config import BaseConfig
@@ -25,15 +27,54 @@ except ImportError:
 DEFAULT_OUTPUT_FORMAT = "app"
 
 
+MACOS_LOG_PREFIX_REGEX = re.compile(
+    r"\d{4}-\d{2}-\d{2} (?P<timestamp>\d{2}:\d{2}:\d{2}.\d{3}) Df (.*?)\[.*?:.*\]"
+    r"(?P<subsystem>( \(libffi\.dylib\))|( \(_ctypes\.cpython-3\d{1,2}-.*\.so\)))? (?P<content>.*)"
+)
+
+
+def macOS_log_clean_filter(line):
+    """Filter a macOS system log to extract the Python-generated message
+    content.
+
+    Any system or stub messages are ignored; all logging prefixes are stripped.
+
+    :param line: The raw line from the system log
+    :returns: A tuple, containing (a) the log line, stripped of any system
+        logging context, and (b) a boolean indicating if the message should be
+        included for analysis purposes (i.e., it's Python content, not a system
+        message). Returns a single ``None`` if the line should be dumped.
+    """
+    if any(
+        [
+            # Log stream outputs the filter when it starts
+            line.startswith("Filtering the log data using "),
+            # Log stream outputs barely useful column headers on startup
+            line.startswith("Timestamp          "),
+            # iOS reports an ignorable error on startup
+            line.startswith("Error from getpwuid_r:"),
+        ]
+    ):
+        return None
+
+    match = MACOS_LOG_PREFIX_REGEX.match(line)
+    if match:
+        groups = match.groupdict()
+        return groups["content"], bool(groups["subsystem"])
+
+    return line, False
+
+
 class macOSMixin:
     platform = "macOS"
 
 
 class macOSRunMixin:
-    def run_app(self, app: BaseConfig, **kwargs):
+    def run_app(self, app: BaseConfig, test_mode: bool, **kwargs):
         """Start the application.
 
         :param app: The config object for the app
+        :param test_mode: Boolean; Is the app running in test mode?
         """
         # Start log stream for the app.
         # Streaming the system log is... a mess. The system log contains a
@@ -54,7 +95,7 @@ class macOSRunMixin:
         sender = os.fsdecode(
             self.binary_path(app) / "Contents" / "MacOS" / app.formal_name
         )
-        log_popen = self.subprocess.Popen(
+        log_popen = self.tools.subprocess.Popen(
             [
                 "log",
                 "stream",
@@ -73,42 +114,51 @@ class macOSRunMixin:
         # Wait for the log stream start up
         time.sleep(0.25)
 
+        app_pid = None
         try:
-            self.logger.info("Starting app...", prefix=app.app_name)
-            try:
-                self.subprocess.run(
-                    [
-                        "open",
-                        "-n",  # Force a new app to be launched
-                        os.fsdecode(self.binary_path(app)),
-                    ],
-                    cwd=self.home_path,
-                    check=True,
-                )
-            except subprocess.CalledProcessError:
-                raise BriefcaseCommandError(f"Unable to start app {app.app_name}.")
+            # Set up the log stream
+            kwargs = self._prepare_app_env(app=app, test_mode=test_mode)
+
+            # Start the app in a way that lets us stream the logs
+            self.tools.subprocess.run(
+                [
+                    "open",
+                    "-n",  # Force a new app to be launched
+                    os.fsdecode(self.binary_path(app)),
+                ],
+                cwd=self.tools.home_path,
+                check=True,
+                **kwargs,
+            )
 
             # Find the App process ID so log streaming can exit when the app exits
             app_pid = get_process_id_by_command(
-                command=str(self.binary_path(app)), logger=self.logger
+                command=str(self.binary_path(app)),
+                logger=self.logger,
             )
+
             if app_pid is None:
-                self.logger.error()
-                self.logger.error(
+                raise BriefcaseCommandError(
                     f"Unable to find process for app {app.app_name} to start log streaming."
                 )
-            else:
-                # Start streaming logs for the app.
-                self.logger.info(
-                    "Following system log output (type CTRL-C to stop log)...",
-                    prefix=app.app_name,
-                )
-                self.logger.info("=" * 75)
-                self.subprocess.stream_output(
-                    "log stream", log_popen, stop_func=lambda: is_process_dead(app_pid)
-                )
+
+            # Stream the app logs.
+            self._stream_app_logs(
+                app,
+                popen=log_popen,
+                test_mode=test_mode,
+                clean_filter=macOS_log_clean_filter,
+                clean_output=True,
+                stop_func=lambda: is_process_dead(app_pid),
+                log_stream=True,
+            )
+        except subprocess.CalledProcessError:
+            raise BriefcaseCommandError(f"Unable to start app {app.app_name}.")
         finally:
-            self.subprocess.cleanup("log stream", log_popen)
+            # Ensure the App also terminates when exiting
+            if app_pid:
+                with suppress(ProcessLookupError):
+                    self.tools.os.kill(app_pid, SIGTERM)
 
 
 def is_mach_o_binary(path):
@@ -143,6 +193,14 @@ class macOSSigningMixin:
         # These are abstracted to enable testing without patching.
         self.get_identities = get_identities
 
+    def entitlements_path(self, app: BaseConfig):
+        # If the index file hasn't been loaded for this app, load it.
+        try:
+            path_index = self._path_index[app]
+        except KeyError:
+            path_index = self._load_path_index(app)
+        return self.bundle_path(app) / path_index["entitlements_path"]
+
     def select_identity(self, identity=None):
         """Get the codesigning identity to use.
 
@@ -153,7 +211,7 @@ class macOSSigningMixin:
         :returns: The final identity to use
         """
         # Obtain the valid codesigning identities.
-        identities = self.get_identities(self, "codesigning")
+        identities = self.get_identities(self.tools, "codesigning")
 
         if identity:
             try:
@@ -221,7 +279,7 @@ or
 
         self.logger.info(f"Signing {Path(path).relative_to(self.base_path)}")
         try:
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 process_command,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -231,7 +289,7 @@ or
             if "code object is not signed at all" in errors:
                 self.logger.info("... file requires a deep sign; retrying")
                 try:
-                    self.subprocess.run(
+                    self.tools.subprocess.run(
                         process_command + ["--deep"],
                         stderr=subprocess.PIPE,
                         check=True,
@@ -265,19 +323,23 @@ or
         """
         bundle_path = self.binary_path(app)
         resources_path = bundle_path / "Contents" / "Resources"
+        frameworks_path = bundle_path / "Contents" / "Frameworks"
 
-        # Sign all Mach-O executable objects
-        sign_targets = [
-            path
-            for path in resources_path.rglob("*")
-            if not path.is_dir() and is_mach_o_binary(path)
-        ]
+        sign_targets = []
 
-        # Sign all embedded frameworks
-        sign_targets.extend(resources_path.rglob("*.framework"))
+        for folder in (resources_path, frameworks_path):
+            # Sign all Mach-O executable objects
+            sign_targets.extend(
+                path
+                for path in folder.rglob("*")
+                if not path.is_dir() and is_mach_o_binary(path)
+            )
 
-        # Sign all embedded app objets
-        sign_targets.extend(resources_path.rglob("*.app"))
+            # Sign all embedded frameworks
+            sign_targets.extend(folder.rglob("*.framework"))
+
+            # Sign all embedded app objets
+            sign_targets.extend(folder.rglob("*.app"))
 
         # Sign the bundle path itself
         sign_targets.append(bundle_path)
@@ -320,13 +382,13 @@ class macOSPackageMixin(macOSSigningMixin):
         )
 
     def verify_tools(self):
-        if self.host_os != "Darwin":
+        if self.tools.host_os != "Darwin":
             raise BriefcaseCommandError(
                 "Code signing and / or building a DMG requires running on macOS."
             )
 
         # Require the XCode command line tools.
-        verify_command_line_tools_install(self)
+        verify_command_line_tools_install(self.tools)
 
         # Verify superclass tools *after* xcode. This ensures we get the
         # git check *after* the xcode check.
@@ -418,7 +480,7 @@ password:
 """
                     )
                     try:
-                        self.subprocess.run(
+                        self.tools.subprocess.run(
                             [
                                 "xcrun",
                                 "notarytool",
@@ -437,7 +499,7 @@ password:
                 # Attempt the notarization
                 try:
                     self.logger.info()
-                    self.subprocess.run(
+                    self.tools.subprocess.run(
                         [
                             "xcrun",
                             "notarytool",
@@ -463,16 +525,16 @@ password:
                             f"Unable to submit {filename.relative_to(self.base_path)} for notarization."
                         ) from e
         finally:
-            # Clean up house; we don't need the archive any more.
+            # Clean up house; we don't need the archive anymore.
             if archive_filename != filename:
-                self.os.unlink(archive_filename)
+                self.tools.os.unlink(archive_filename)
 
         try:
             self.logger.info()
             self.logger.info(
                 f"Stapling notarization onto {filename.relative_to(self.base_path)}..."
             )
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 [
                     "xcrun",
                     "stapler",

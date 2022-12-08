@@ -134,6 +134,29 @@ Or, if you were using a plugin stored as a local file::
 
     linuxdeploy_plugins = ["DEPLOY_GTK_VERSION=3 path/to/plugins/linuxdeploy-gtk-plugin.sh"]
 
+``dockerfile_extra_content``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Any additional Docker instructions that are required to configure the container
+used to build your Python app. For example, any dependencies that cannot be
+configured with ``apt-get`` could be installed. ``dockerfile_extra_content`` is
+string literal that will be added verbatim to the end of the project Dockerfile.
+
+Any Dockerfile instructions added by ``dockerfile_extra_content`` will be
+executed as the ``brutus`` user, rather than the ``root`` user. If you need to
+perform container setup operations as ``root``, switch the container's user to
+``root``, perform whatever operations are required, then switch back to the
+``brutus`` user - e.g.::
+
+    dockerfile_extra_content = """
+    RUN <first command run as brutus>
+
+    USER root
+    RUN <second command run as root>
+
+    USER brutus
+    """
+
 Runtime issues with AppImages
 =============================
 
@@ -221,8 +244,8 @@ fail with an error::
      note: This error originates from a subprocess, and is likely not a problem with pip.
      >>> Return code: 1
 
-     Unable to install dependencies. This may be because one of your
-     dependencies is invalid, or because pip was unable to connect
+     Unable to install requirements. This may be because one of your
+     requirements is invalid, or because pip was unable to connect
      to the PyPI server.
 
 You must add a separate ``--no-binary`` option for every binary library you want

@@ -1,10 +1,10 @@
-import contextlib
 import operator
 import os
 import platform
 import re
 import sys
 import traceback
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -64,11 +64,12 @@ class Printer:
     # We need to be wide enough to render `sdkmanager --list_installed` output without
     # line wrapping.
     LOG_FILE_WIDTH = 180
+    # Rich only records what's being logged if it is actually written somewhere;
+    # writing to /dev/null allows Rich to do so without needing to print the logs
+    # in the console or save them to file before it is known a file is wanted.
+    dev_null = open(os.devnull, "w", encoding="utf-8", errors="ignore")
     log = RichConsole(
-        # Rich only records what's being logged if it is actually written somewhere;
-        # writing to /dev/null allows Rich to do so without needing to print the logs
-        # in the console or save them to file before it is known a file is wanted.
-        file=open(os.devnull, "w", encoding="utf-8", errors="ignore"),
+        file=dev_null,
         record=True,
         width=LOG_FILE_WIDTH,
         no_color=True,
@@ -120,13 +121,21 @@ class Log:
     DEBUG = 2
     # printed at the beginning of all debug output
     DEBUG_PREFACE = ">>> "
+    # subdirectory of command.base_path to store log files
+    LOG_DIR = "logs"
 
     def __init__(self, printer=Printer(), verbosity=1):
         self.print = printer
-        # verbosity will be 1 more than the number of v flags from invocation
+        # --verbosity flag: 1 for info, 2 for debug
         self.verbosity = verbosity
-        # preserved Rich stacktrace of exception for logging to file
-        self.stacktrace = None
+        # --log flag to force logfile creation
+        self.save_log = False
+        # flag set by exceptions to skip writing the log; save_log takes precedence.
+        self.skip_log = False
+        # Rich stacktraces of exceptions for logging to file.
+        # A list of tuples containing a label for the thread context, and the Trace object
+        self.stacktraces = []
+        # functions to run for additional logging if creating a logfile
         self.log_file_extras = []
 
     def _log(
@@ -196,9 +205,19 @@ class Log:
         """Log message at error level; always included in output."""
         self._log(prefix=prefix, message=message, markup=markup, style="bold red")
 
-    def capture_stacktrace(self):
-        """Preserve Rich stacktrace from exception while in except block."""
-        self.stacktrace = Traceback.extract(*sys.exc_info(), show_locals=True)
+    def capture_stacktrace(self, label="Main thread"):
+        """Preserve Rich stacktrace from exception while in except block.
+
+        :param label: An identifying label for the thread that has raised the
+            stacktrace. Defaults to the main thread.
+        """
+        exc_info = sys.exc_info()
+        try:
+            self.skip_log = exc_info[1].skip_logfile
+        except AttributeError:
+            pass
+
+        self.stacktraces.append((label, Traceback.extract(*exc_info, show_locals=True)))
 
     def add_log_file_extra(self, func):
         """Register a function to be called in the event that a log file is
@@ -211,15 +230,20 @@ class Log:
 
     def save_log_to_file(self, command):
         """Save the current application log to file."""
-        # only save the log if a command ran and it errored or --log was specified
-        if command is None or (not self.stacktrace and not command.save_log):
+        # A log file is always written if a Command ran and `--log` was provided.
+        # If `--log` was not provided, then the log is written when an exception
+        # occurred and the exception was not explicitly configured to skip the log.
+        if not (
+            command and (self.save_log or (self.stacktraces and not self.skip_log))
+        ):
             return
 
         with command.input.wait_bar("Saving log...", transient=True):
             self.print.to_console()
             log_filename = f"briefcase.{datetime.now().strftime('%Y_%m_%d-%H_%M_%S')}.{command.command}.log"
-            log_filepath = command.base_path / log_filename
+            log_filepath = command.base_path / self.LOG_DIR / log_filename
             try:
+                log_filepath.parent.mkdir(parents=True, exist_ok=True)
                 with open(
                     log_filepath, "w", encoding="utf-8", errors="backslashreplace"
                 ) as log_file:
@@ -233,17 +257,19 @@ class Log:
     def _build_log(self, command):
         """Accumulate all information to include in the log file."""
         # add the exception stacktrace to end of log if one was captured
-        if self.stacktrace:
+        if self.stacktraces:
             # using print.log.print() instead of print.to_log() to avoid
             # timestamp and code location inclusion for the stacktrace box.
-            self.print.log.print(
-                Traceback(
-                    trace=self.stacktrace,
-                    width=self.print.LOG_FILE_WIDTH,
-                    show_locals=True,
-                ),
-                new_line_start=True,
-            )
+            for thread, stacktrace in self.stacktraces:
+                self.print.log.print(
+                    f"{thread} traceback:",
+                    Traceback(
+                        trace=stacktrace,
+                        width=self.print.LOG_FILE_WIDTH,
+                        show_locals=True,
+                    ),
+                    new_line_start=True,
+                )
 
         if self.log_file_extras:
             with command.input.wait_bar(
@@ -255,8 +281,6 @@ class Log:
                 for func in self.log_file_extras:
                     try:
                         func()
-                    except KeyboardInterrupt:
-                        raise
                     except Exception:
                         self.error(traceback.format_exc())
 
@@ -264,7 +288,7 @@ class Log:
         uname = platform.uname()
         sanitized_env_vars = "\n".join(
             f"    {env_var}={value if not SENSITIVE_SETTING_RE.search(env_var) else '********************'}"
-            for env_var, value in sorted(command.os.environ.items())
+            for env_var, value in sorted(command.tools.os.environ.items())
         )
         return (
             f"Date/Time:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
@@ -306,7 +330,7 @@ class Console:
         # Signal that Rich is dynamically controlling the console output.
         # Therefore, all output must be printed to the screen by Rich to
         # prevent corruption of dynamic elements like the Wait Bar.
-        self.is_output_controlled = False
+        self.is_console_controlled = False
 
     def prompt(self, *values, markup=False, **kwargs):
         """Print to the screen for soliciting user interaction.
@@ -329,7 +353,7 @@ class Console:
             console=self.print.console,
         )
 
-    @contextlib.contextmanager
+    @contextmanager
     def wait_bar(
         self,
         message="",
@@ -363,7 +387,7 @@ class Console:
             # message=None is a sentinel the Wait Bar should be inactive
             self._wait_bar.add_task("", start=False, message=None)
 
-        self.is_output_controlled = True
+        self.is_console_controlled = True
         wait_bar_task = self._wait_bar.tasks[0]
         previous_message = wait_bar_task.fields["message"]
         self._wait_bar.update(wait_bar_task.id, message=message)
@@ -383,7 +407,35 @@ class Console:
             # Deactivate the Wait Bar if returning to its initial state
             if previous_message is None:
                 self._wait_bar.stop()
-                self.is_output_controlled = False
+                self.is_console_controlled = False
+
+    @contextmanager
+    def release_console_control(self):
+        """Context manager to remove console elements such as the Wait Bar.
+
+        This is useful to temporarily release control of the console
+        when, e.g., a process is interrupted or a user needs to be
+        prompted. For instance, when batch scripts are interrupted by
+        CTRL+C in cmd.exe, the user may be prompted to abort the script;
+        so, the console cannot be controlled while such scripts run or
+        the prompt may be hidden from the user.
+        """
+        # Preserve current console state
+        is_output_controlled = self.is_console_controlled
+        is_wait_bar_running = self._wait_bar and self._wait_bar.live.is_started
+
+        # Stop any active dynamic console elements
+        if is_wait_bar_running:
+            self._wait_bar.stop()
+
+        self.is_console_controlled = False
+        try:
+            yield
+        finally:
+            self.is_console_controlled = is_output_controlled
+            # Restore previous console state
+            if is_wait_bar_running:
+                self._wait_bar.start()
 
     def boolean_input(self, question, default=False):
         """Get a boolean input from user, in the form of y/n.

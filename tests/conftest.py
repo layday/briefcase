@@ -1,22 +1,23 @@
 import inspect
 from unittest import mock
 
+import git as git_
 import pytest
 from git import exc as git_exceptions
 
 from briefcase.config import AppConfig
 from briefcase.console import Printer
 
-# Stop Rich from inserting line breaks in to long lines of text.
-# Rich does this to prevent individual words being split between
-# two lines in the terminal...however, these additional line breaks
-# cause some tests to fail unexpectedly.
-Printer.console.soft_wrap = True
+
+def pytest_sessionfinish(session, exitstatus):
+    """When pytest is wrapping up, close the /dev/null file handle for the
+    logfile Rich Console to avoid spurious ResourceWarning errors."""
+    Printer.dev_null.close()
 
 
 @pytest.fixture
 def mock_git():
-    git = mock.MagicMock()
+    git = mock.MagicMock(spec_set=git_)
     git.exc = git_exceptions
 
     return git
@@ -32,7 +33,7 @@ def monkeypatched_print(*args, **kwargs):
     module = inspect.getmodule(frame.f_code)
 
     # Disallow any use of a bare print() in the briefcase codebase
-    if module.__name__.startswith("briefcase."):
+    if module and module.__name__.startswith("briefcase."):
         pytest.fail(
             "print() should not be invoked directly. Use Log or Console for printing."
         )

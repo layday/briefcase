@@ -2,12 +2,13 @@ import pytest
 
 from briefcase.commands import UpdateCommand
 from briefcase.config import AppConfig
+from briefcase.console import Console, Log
 
 
 class DummyUpdateCommand(UpdateCommand):
     """A dummy update command that doesn't actually do anything.
 
-    It only serves to track which actions would be performend.
+    It only serves to track which actions would be performed.
     """
 
     platform = "tester"
@@ -15,6 +16,8 @@ class DummyUpdateCommand(UpdateCommand):
     description = "Dummy update command"
 
     def __init__(self, *args, apps, **kwargs):
+        kwargs.setdefault("logger", Log())
+        kwargs.setdefault("console", Console())
         super().__init__(*args, apps=apps, **kwargs)
 
         self.actions = []
@@ -34,13 +37,13 @@ class DummyUpdateCommand(UpdateCommand):
 
     # Override all the body methods of a UpdateCommand
     # with versions that we can use to track actions performed.
-    def install_app_dependencies(self, app):
-        self.actions.append(("dependencies", app))
-        with (self.bundle_path(app) / "dependencies").open("w") as f:
-            f.write("app dependencies")
+    def install_app_requirements(self, app, test_mode):
+        self.actions.append(("requirements", app, test_mode))
+        with (self.bundle_path(app) / "requirements").open("w") as f:
+            f.write("app requirements")
 
-    def install_app_code(self, app):
-        self.actions.append(("code", app))
+    def install_app_code(self, app, test_mode):
+        self.actions.append(("code", app, test_mode))
         with (self.bundle_path(app) / "code.py").open("w") as f:
             f.write("print('app')")
 

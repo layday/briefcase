@@ -6,18 +6,15 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from typing import Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from typing import List, Optional
 
-from cookiecutter import exceptions as cookiecutter_exceptions
+from packaging.version import Version
 
 import briefcase
 from briefcase.config import BaseConfig
-from briefcase.exceptions import (
-    BriefcaseCommandError,
-    MissingNetworkResourceError,
-    NetworkFailure,
-)
+from briefcase.exceptions import BriefcaseCommandError, MissingNetworkResourceError
+from briefcase.integrations import git
+from briefcase.integrations.subprocess import NativeAppContext
 
 from .base import (
     BaseCommand,
@@ -27,14 +24,6 @@ from .base import (
 )
 
 
-class InvalidTemplateRepository(BriefcaseCommandError):
-    def __init__(self, template):
-        self.template = template
-        super().__init__(
-            f"Unable to clone application template; is the template path {template!r} correct?"
-        )
-
-
 class InvalidSupportPackage(BriefcaseCommandError):
     def __init__(self, filename):
         self.filename = filename
@@ -42,27 +31,28 @@ class InvalidSupportPackage(BriefcaseCommandError):
 
 
 class MissingSupportPackage(BriefcaseCommandError):
-    def __init__(self, python_version_tag, host_arch):
+    def __init__(self, python_version_tag, platform, host_arch):
         self.python_version_tag = python_version_tag
+        self.platform = platform
         self.host_arch = host_arch
         super().__init__(
             f"""\
-Unable to download a support package for Python {self.python_version_tag} on {self.host_arch}.
+Unable to download {self.platform} support package for Python {self.python_version_tag} on {self.host_arch}.
 
 This is likely because either Python {self.python_version_tag} and/or {self.host_arch}
-is not yet supported. You will need to:
+is not yet supported on {self.platform}. You will need to:
     * Use an older version of Python; or
     * Compile your own custom support package.
 """
         )
 
 
-class DependencyInstallError(BriefcaseCommandError):
+class RequirementsInstallError(BriefcaseCommandError):
     def __init__(self):
         super().__init__(
             """\
-Unable to install dependencies. This may be because one of your
-dependencies is invalid, or because pip was unable to connect
+Unable to install requirements. This may be because one of your
+requirements is invalid, or because pip was unable to connect
 to the PyPI server.
 """
         )
@@ -94,12 +84,17 @@ def write_dist_info(app: BaseConfig, dist_info_path: Path):
     """Install the dist-info folder for the application.
 
     :param app: The config object for the app
-    :param path: The path into which the dist-info folder should be written.
+    :param dist_info_path: The path into which the dist-info folder should be written.
     """
     # Create dist-info folder, and write a minimal metadata collection.
     dist_info_path.mkdir(exist_ok=True)
     with (dist_info_path / "INSTALLER").open("w", encoding="utf-8") as f:
         f.write("briefcase\n")
+    with (dist_info_path / "WHEEL").open("w", encoding="utf-8") as f:
+        f.write("Wheel-Version: 1.0\n")
+        f.write("Root-Is-Purelib: true\n")
+        f.write(f"Generator: briefcase ({briefcase.__version__})\n")
+        f.write("Tag: py3-none-any\n")
     with (dist_info_path / "METADATA").open("w", encoding="utf-8") as f:
         f.write("Metadata-Version: 2.1\n")
         f.write(f"Briefcase-Version: {briefcase.__version__}\n")
@@ -109,11 +104,16 @@ def write_dist_info(app: BaseConfig, dist_info_path: Path):
         f.write(f"Version: {app.version}\n")
         if app.url:
             f.write(f"Home-page: {app.url}\n")
+            f.write(f"Download-URL: {app.url}\n")
+        else:
+            f.write("Download-URL: \n")
         if app.author:
             f.write(f"Author: {app.author}\n")
         if app.author_email:
             f.write(f"Author-email: {app.author_email}\n")
         f.write(f"Summary: {app.description}\n")
+    with (dist_info_path / "top_level.txt").open("w", encoding="utf-8") as f:
+        f.write(f"{app.module_name}\n")
 
 
 class CreateCommand(BaseCommand):
@@ -128,18 +128,16 @@ class CreateCommand(BaseCommand):
         """The URL for a cookiecutter repository to use when creating apps."""
         return f"https://github.com/beeware/briefcase-{self.platform}-{self.output_format}-template.git"
 
-    @property
-    def support_package_url_query(self):
+    def support_package_filename(self, support_revision):
         """The query arguments to use in a support package query request."""
-        return [
-            ("platform", self.platform),
-            ("version", self.python_version_tag),
-        ]
+        return f"Python-{self.python_version_tag}-{self.platform}-support.b{support_revision}.tar.gz"
 
-    @property
-    def support_package_url(self):
+    def support_package_url(self, support_revision):
         """The URL of the support package to use for apps of this type."""
-        return f"https://briefcase-support.org/python?{urlencode(self.support_package_url_query)}"
+        return (
+            f"https://briefcase-support.s3.amazonaws.com/python/{self.python_version_tag}/{self.platform}/"
+            + self.support_package_filename(support_revision)
+        )
 
     def icon_targets(self, app: BaseConfig):
         """Obtain the dictionary of icon targets that the template requires.
@@ -240,28 +238,33 @@ class CreateCommand(BaseCommand):
         # If the app config doesn't explicitly define a template,
         # use a default template.
         if app.template is None:
-            app.template = self.app_template_url
+            template = self.app_template_url
+        else:
+            template = app.template
+
+        # If the app config doesn't explicitly define a template branch,
+        # use the branch derived from the Briefcase version
+        version = Version(briefcase.__version__)
         if app.template_branch is None:
-            app.template_branch = self.python_version_tag
-
-        self.logger.info(
-            f"Using app template: {app.template}, branch {app.template_branch}"
-        )
-
-        # Make sure we have an updated cookiecutter template,
-        # checked out to the right branch
-        cached_template = self.update_cookiecutter_cache(
-            template=app.template, branch=app.template_branch
-        )
+            template_branch = f"v{version.base_version}"
+        else:
+            template_branch = app.template_branch
 
         # Construct a template context from the app configuration.
         extra_context = app.__dict__.copy()
+
+        # Remove the context items that describe the template
+        extra_context.pop("template")
+        extra_context.pop("template_branch")
+
         # Augment with some extra fields.
         extra_context.update(
             {
                 # Properties of the generating environment
+                # The full Python version string, including minor and dev/a/b/c suffixes (e.g., 3.11.0rc2)
                 "python_version": platform.python_version(),
                 # Transformations of explicit properties into useful forms
+                "class_name": app.class_name,
                 "module_name": app.module_name,
                 "package_name": app.package_name,
                 # Properties that are a function of the execution
@@ -273,40 +276,49 @@ class CreateCommand(BaseCommand):
         # Add in any extra template context required by the output format.
         extra_context.update(self.output_format_template_context(app))
 
+        # Create the platform directory (if it doesn't already exist)
+        output_path = self.bundle_path(app).parent
+        output_path.mkdir(parents=True, exist_ok=True)
+
         try:
-            # Create the platform directory (if it doesn't already exist)
-            output_path = self.bundle_path(app).parent
-            output_path.mkdir(parents=True, exist_ok=True)
-            # Unroll the template
-            self.cookiecutter(
-                str(cached_template),
-                no_input=True,
-                output_dir=os.fsdecode(output_path),
-                checkout=app.template_branch,
+            self.logger.info(
+                f"Using app template: {template}, branch {template_branch}"
+            )
+            self.generate_template(
+                template=template,
+                branch=template_branch,
+                output_path=output_path,
                 extra_context=extra_context,
             )
-        except subprocess.CalledProcessError as e:
-            # Computer is offline
-            # status code == 128 - certificate validation error.
-            raise NetworkFailure("clone template repository") from e
-        except cookiecutter_exceptions.RepositoryNotFound as e:
-            # Either the template path is invalid,
-            # or it isn't a cookiecutter template (i.e., no cookiecutter.json)
-            raise InvalidTemplateRepository(app.template) from e
-        except cookiecutter_exceptions.RepositoryCloneFailed as e:
-            # Branch does not exist for python version
-            raise TemplateUnsupportedVersion(app.template_branch) from e
+        except TemplateUnsupportedVersion:
+            # If we're on a development branch, and the template branch was *not*
+            # provided explicitly, we can use a fallback development template.
+            # Otherwise, re-raise the exception about the unsupported template version.
+            if version.dev is not None and app.template_branch is None:
+                # Development branches can use the main template.
+                self.logger.info(
+                    f"Template branch {template_branch} not found; falling back to development template"
+                )
+                template_branch = "main"
+                self.generate_template(
+                    template=template,
+                    branch=template_branch,
+                    output_path=output_path,
+                    extra_context=extra_context,
+                )
+            else:
+                raise
 
     def _unpack_support_package(self, support_file_path, support_path):
         """Unpack a support package into a specific location.
 
         :param support_file_path: The path to the support file to be unpacked.
-        :param support_path: The path where support files should unpacked.
+        :param support_path: The path where support files should be unpacked.
         """
         try:
             with self.input.wait_bar("Unpacking support package..."):
                 support_path.mkdir(parents=True, exist_ok=True)
-                self.shutil.unpack_archive(
+                self.tools.shutil.unpack_archive(
                     support_file_path,
                     extract_dir=support_path,
                 )
@@ -334,29 +346,38 @@ class CreateCommand(BaseCommand):
                 support_package_url = app.support_package
                 custom_support_package = True
                 self.logger.info(f"Using custom support package {support_package_url}")
+                try:
+                    # If the app has a custom support package *and* a support revision,
+                    # that's an error.
+                    app.support_revision
+                    self.logger.warning(
+                        "App specifies both a support package and a support revision; "
+                        "support revision will be ignored."
+                    )
+                except AttributeError:
+                    pass
             except AttributeError:
-                support_package_url = self.support_package_url
+                # If the app specifies a support revision, use it;
+                # otherwise, use the support revision named by the template
+                try:
+                    support_revision = app.support_revision
+                except AttributeError:
+                    # No support revision specified; use the template-specified version
+                    try:
+                        support_revision = self.support_revision(app)
+                    except KeyError:
+                        # No template-specified support revision
+                        raise MissingSupportPackage(
+                            python_version_tag=self.python_version_tag,
+                            platform=self.platform,
+                            host_arch=self.tools.host_arch,
+                        )
+
+                support_package_url = self.support_package_url(support_revision)
                 custom_support_package = False
                 self.logger.info(f"Using support package {support_package_url}")
 
             if support_package_url.startswith(("https://", "http://")):
-                try:
-                    self.logger.info(f"... pinned to revision {app.support_revision}")
-                    # If a revision has been specified, add the revision
-                    # as a query argument in the support package URL.
-                    # This is a lot more painful than "add arg to query" should
-                    # be because (a) url splits aren't appendable, and
-                    # (b) Python 3.5 doesn't guarantee dictionary order.
-                    url_parts = list(urlsplit(support_package_url))
-                    query = list(parse_qsl(url_parts[3]))
-                    query.append(("revision", app.support_revision))
-                    url_parts[3] = urlencode(query)
-                    support_package_url = urlunsplit(url_parts)
-
-                except AttributeError:
-                    # No support revision specified.
-                    self.logger.info("... using most recent revision")
-
                 if custom_support_package:
                     # If the support package is custom, cache it using a hash of
                     # the download URL. This is needed to differentiate to support
@@ -374,7 +395,7 @@ class CreateCommand(BaseCommand):
 
                 # Download the support file, caching the result
                 # in the user's briefcase support cache directory.
-                return self.download_file(
+                return self.tools.download.file(
                     url=support_package_url,
                     download_path=download_path,
                     role="support package",
@@ -388,36 +409,46 @@ class CreateCommand(BaseCommand):
             else:
                 raise MissingSupportPackage(
                     python_version_tag=self.python_version_tag,
-                    host_arch=self.host_arch,
+                    platform=self.platform,
+                    host_arch=self.tools.host_arch,
                 ) from e
 
-    def _write_requirements_file(self, app: BaseConfig, requirements_path):
-        """Configure application dependencies by writing a requirements.txt
+    def _write_requirements_file(
+        self,
+        app: BaseConfig,
+        requires: List[str],
+        requirements_path: Path,
+    ):
+        """Configure application requirements by writing a requirements.txt
         file.
 
         :param app: The app configuration
+        :param requires: The full list of requirements
         :param requirements_path: The full path to a requirements.txt file that
             will be written.
         """
-        # Windows allows both / and \ as a path separator in requirements.
-        separators = [os.sep]
-        if os.altsep:
-            separators.append(os.altsep)
 
         with self.input.wait_bar("Writing requirements file..."):
-            with (requirements_path).open("w", encoding="utf-8") as f:
-                if app.requires:
-                    for requirement in app.requires:
+            with requirements_path.open("w", encoding="utf-8") as f:
+                if requires:
+                    for requirement in requires:
                         # If the requirement is a local path, convert it to
                         # absolute, because Flatpak moves the requirements file
                         # to a different place before using it.
-                        if any(sep in requirement for sep in separators) and (
-                            not _has_url(requirement)
-                        ):
+                        if _is_local_requirement(requirement):
                             # We use os.path.abspath() rather than Path.resolve()
                             # because we *don't* want Path's symlink resolving behavior.
                             requirement = os.path.abspath(self.base_path / requirement)
                         f.write(f"{requirement}\n")
+
+    def _pip_requires(self, requires: List[str]):
+        """Convert the list of requirements to be passed to pip into its final
+        form.
+
+        :param requires: The user-specified list of app requirements
+        :returns: The final list of requirement arguments to pass to pip
+        """
+        return requires
 
     def _extra_pip_args(self, app: BaseConfig):
         """Any additional arguments that must be passed to pip when installing
@@ -428,37 +459,52 @@ class CreateCommand(BaseCommand):
         """
         return []
 
-    def _install_app_dependencies(self, app: BaseConfig, app_packages_path):
-        """Install dependencies for the app with pip.
+    def _pip_kwargs(self, app: BaseConfig):
+        """Generate the kwargs to pass when invoking pip.
 
         :param app: The app configuration
+        :returns: The kwargs to pass to the pip call
+        """
+        # If there is a support package provided, add the cross-platform
+        # folder of the support package to the PYTHONPATH. This allows
+        # a support package to specify a sitecustomize.py that will make
+        # pip behave as if it was being run on the target platform.
+        pip_kwargs = {}
+        try:
+            pip_kwargs["env"] = {
+                "PYTHONPATH": str(self.support_path(app) / "platform-site"),
+            }
+        except KeyError:
+            pass
+
+        return pip_kwargs
+
+    def _install_app_requirements(
+        self,
+        app: BaseConfig,
+        requires: List[str],
+        app_packages_path: Path,
+    ):
+        """Install requirements for the app with pip.
+
+        :param app: The app configuration
+        :param requires: The list of requirements to install
         :param app_packages_path: The full path of the app_packages folder into which
-            dependencies should be installed.
+            requirements should be installed.
         """
         # Clear existing dependency directory
         if app_packages_path.is_dir():
-            self.shutil.rmtree(app_packages_path)
-            self.os.mkdir(app_packages_path)
+            self.tools.shutil.rmtree(app_packages_path)
+            self.tools.os.mkdir(app_packages_path)
 
-        # Install dependencies
-        if app.requires:
-            with self.input.wait_bar("Installing app dependencies..."):
-                # If there is a support package provided, add the cross-platform
-                # folder of the support package to the PYTHONPATH. This allows
-                # a support package to specify a sitecustomize.py that will make
-                # pip behave as if it was being run on the target platform.
-                pip_kwargs = {}
+        # Install requirements
+        if requires:
+            with self.input.wait_bar("Installing app requirements..."):
                 try:
-                    pip_kwargs["env"] = {
-                        "PYTHONPATH": str(self.support_path(app) / "platform-site"),
-                    }
-                except KeyError:
-                    pass
-
-                try:
-                    self.subprocess.run(
+                    self.tools[app].app_context.run(
                         [
                             sys.executable,
+                            "-u",
                             "-m",
                             "pip",
                             "install",
@@ -467,57 +513,68 @@ class CreateCommand(BaseCommand):
                             f"--target={app_packages_path}",
                         ]
                         + self._extra_pip_args(app)
-                        + app.requires,
+                        + self._pip_requires(requires),
                         check=True,
-                        **pip_kwargs,
+                        **self._pip_kwargs(app),
                     )
                 except subprocess.CalledProcessError as e:
-                    raise DependencyInstallError() from e
+                    raise RequirementsInstallError() from e
         else:
-            self.logger.info("No application dependencies.")
+            self.logger.info("No application requirements.")
 
-    def install_app_dependencies(self, app: BaseConfig):
-        """Handle dependencies for the app.
+    def install_app_requirements(self, app: BaseConfig, test_mode: bool):
+        """Handle requirements for the app.
 
         This will result in either (in preferential order):
          * a requirements.txt file being written at a location specified by
            ``app_requirements_path`` in the template path index
-         * dependencies being installed with pip into the location specified
+         * requirements being installed with pip into the location specified
            by the ``app_packages_path`` in the template path index.
+
+        If ``test_mode`` is True, the test requirements will also be installed.
 
         If the path index doesn't specify either of the path index entries,
         an error is raised.
 
         :param app: The config object for the app
+        :param test_mode: Should the test requirements be installed?
         """
+        requires = app.requires.copy() if app.requires else []
+        if test_mode and app.test_requires:
+            requires.extend(app.test_requires)
+
         try:
-            path = self.app_requirements_path(app)
-            self._write_requirements_file(app, path)
+            requirements_path = self.app_requirements_path(app)
+            self._write_requirements_file(app, requires, requirements_path)
         except KeyError:
             try:
-                path = self.app_packages_path(app)
-                self._install_app_dependencies(app, path)
+                app_packages_path = self.app_packages_path(app)
+                self._install_app_requirements(app, requires, app_packages_path)
             except KeyError as e:
                 raise BriefcaseCommandError(
                     "Application path index file does not define "
                     "`app_requirements_path` or `app_packages_path`"
                 ) from e
 
-    def install_app_code(self, app: BaseConfig):
+    def install_app_code(self, app: BaseConfig, test_mode: bool):
         """Install the application code into the bundle.
 
         :param app: The config object for the app
+        :param test_mode: Should the application test code also be installed?
         """
-
-        # Remove existing app folder
+        # Remove existing app folder if it exists
         app_path = self.app_path(app)
-        if app_path.is_dir():
-            self.shutil.rmtree(app_path)
-            self.os.mkdir(app_path)
+        if app_path.exists():
+            self.tools.shutil.rmtree(app_path)
+        self.tools.os.mkdir(app_path)
+
+        sources = app.sources.copy() if app.sources else []
+        if test_mode and app.test_sources:
+            sources.extend(app.test_sources)
 
         # Install app code.
-        if app.sources:
-            for src in app.sources:
+        if sources:
+            for src in sources:
                 with self.input.wait_bar(f"Installing {src}..."):
                     original = self.base_path / src
                     target = app_path / original.name
@@ -526,9 +583,9 @@ class CreateCommand(BaseCommand):
                     if not original.exists():
                         raise MissingAppSources(src)
                     elif original.is_dir():
-                        self.shutil.copytree(original, target)
+                        self.tools.shutil.copytree(original, target)
                     else:
-                        self.shutil.copy(original, target)
+                        self.tools.shutil.copy(original, target)
         else:
             self.logger.info(f"No sources defined for {app.app_name}.")
 
@@ -618,11 +675,13 @@ class CreateCommand(BaseCommand):
                     full_role = role
                 else:
                     try:
-                        source_filename = f"{source[variant]}{target.suffix}"
                         full_role = f"{variant} {role}"
-                    except (TypeError, KeyError):
+                        source_filename = f"{source[variant]}{target.suffix}"
+                    except TypeError:
+                        source_filename = f"{source}-{variant}{target.suffix}"
+                    except KeyError:
                         self.logger.info(
-                            f"Unable to find {variant} variant for {role}; using default"
+                            f"Unknown variant {variant!r} for {role}; using default"
                         )
                         return
             else:
@@ -642,11 +701,13 @@ class CreateCommand(BaseCommand):
                         full_role = f"{size}px {role}"
                 else:
                     try:
-                        source_filename = f"{source[variant]}-{size}{target.suffix}"
                         full_role = f"{size}px {variant} {role}"
-                    except (TypeError, KeyError):
+                        source_filename = f"{source[variant]}-{size}{target.suffix}"
+                    except TypeError:
+                        source_filename = f"{source}-{variant}-{size}{target.suffix}"
+                    except KeyError:
                         self.logger.info(
-                            f"Unable to find {size}px {variant} variant for {role}; using default"
+                            f"Unknown variant {variant!r} for {size}px {role}; using default"
                         )
                         return
 
@@ -658,7 +719,7 @@ class CreateCommand(BaseCommand):
                     # Make sure the target directory exists
                     target.parent.mkdir(parents=True, exist_ok=True)
                     # Copy the source image to the target location
-                    self.shutil.copy(full_source, target)
+                    self.tools.shutil.copy(full_source, target)
             else:
                 self.logger.info(
                     f"Unable to find {source_filename} for {full_role}; using default"
@@ -750,17 +811,18 @@ class CreateCommand(BaseCommand):
                         relative_path = path.relative_to(self.bundle_path(app))
                         if path.is_dir():
                             self.logger.info(f"Removing directory {relative_path}")
-                            self.shutil.rmtree(path)
+                            self.tools.shutil.rmtree(path)
                         else:
                             self.logger.info(f"Removing {relative_path}")
                             path.unlink()
         else:
             self.logger.info("No app content clean up required.")
 
-    def create_app(self, app: BaseConfig, **options):
+    def create_app(self, app: BaseConfig, test_mode: bool = False, **options):
         """Create an application bundle.
 
         :param app: The config object for the app
+        :param test_mode: Should the app be updated in test mode? (default: False)
         """
         if not app.supported:
             raise UnsupportedPlatform(self.platform)
@@ -777,7 +839,7 @@ class CreateCommand(BaseCommand):
                 )
                 return
             self.logger.info("Removing old application bundle...", prefix=app.app_name)
-            self.shutil.rmtree(bundle_path)
+            self.tools.shutil.rmtree(bundle_path)
 
         self.logger.info("Generating application template...", prefix=app.app_name)
         self.generate_app_template(app=app)
@@ -785,11 +847,15 @@ class CreateCommand(BaseCommand):
         self.logger.info("Installing support package...", prefix=app.app_name)
         self.install_app_support_package(app=app)
 
-        self.logger.info("Installing dependencies...", prefix=app.app_name)
-        self.install_app_dependencies(app=app)
+        # Verify tools for the app after the app template and support package
+        # are in place since the app tools may be dependent on them.
+        self.verify_app_tools(app)
 
         self.logger.info("Installing application code...", prefix=app.app_name)
-        self.install_app_code(app=app)
+        self.install_app_code(app=app, test_mode=test_mode)
+
+        self.logger.info("Installing requirements...", prefix=app.app_name)
+        self.install_app_requirements(app=app, test_mode=test_mode)
 
         self.logger.info("Installing application resources...", prefix=app.app_name)
         self.install_app_resources(app=app)
@@ -801,7 +867,7 @@ class CreateCommand(BaseCommand):
         self.optimise(app=app)
 
         self.logger.info(
-            f"Created {self.bundle_path(app).relative_to(self.base_path)}",
+            f"Created {bundle_path.relative_to(self.base_path)}",
             prefix=app.app_name,
         )
 
@@ -811,7 +877,13 @@ class CreateCommand(BaseCommand):
         Raises MissingToolException if a required system tool is
         missing.
         """
-        self.git = self.integrations.git.verify_git_is_installed(self)
+        super().verify_tools()
+        git.verify_git_is_installed(tools=self.tools)
+
+    def verify_app_tools(self, app: BaseConfig):
+        """Verify that tools needed to run the command for this app exist."""
+        super().verify_app_tools(app)
+        NativeAppContext.verify(tools=self.tools, app=app)
 
     def __call__(self, app: Optional[BaseConfig] = None, **options):
         # Confirm all required tools are available
@@ -827,9 +899,15 @@ class CreateCommand(BaseCommand):
         return state
 
 
-# Detects any of the URL schemes supported by pip
-# (https://pip.pypa.io/en/stable/topics/vcs-support/).
 def _has_url(requirement):
+    """Determine if the requirement is defined as a URL.
+
+    Detects any of the URL schemes supported by pip
+    (https://pip.pypa.io/en/stable/topics/vcs-support/).
+
+    :param requirement: The requirement to check
+    :returns: True if the requirement is a URL supported by pip.
+    """
     return any(
         f"{scheme}:" in requirement
         for scheme in (
@@ -840,3 +918,17 @@ def _has_url(requirement):
             + ["bzr+http", "bzr+https", "bzr+ssh", "bzr+sftp", "bzr+ftp", "bzr+lp"]
         )
     )
+
+
+def _is_local_requirement(requirement):
+    """Determine if the requirement is a local file path.
+
+    :param requirement: The requirement to check
+    :returns: True if the requirement is a local file path
+    """
+    # Windows allows both / and \ as a path separator in requirements.
+    separators = [os.sep]
+    if os.altsep:
+        separators.append(os.altsep)
+
+    return any(sep in requirement for sep in separators) and (not _has_url(requirement))

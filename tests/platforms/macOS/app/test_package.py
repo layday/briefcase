@@ -1,23 +1,52 @@
 import os
+import subprocess
+import sys
 from unittest import mock
 
 import pytest
 
+from briefcase.console import Console, Log
 from briefcase.exceptions import BriefcaseCommandError
 from briefcase.platforms.macOS.app import macOSAppPackageCommand
 
 
 @pytest.fixture
 def package_command(tmp_path):
-    command = macOSAppPackageCommand(base_path=tmp_path)
+    command = macOSAppPackageCommand(
+        logger=Log(),
+        console=Console(),
+        base_path=tmp_path / "base_path",
+        data_path=tmp_path / "briefcase",
+    )
 
     command.select_identity = mock.MagicMock()
     command.sign_app = mock.MagicMock()
     command.sign_file = mock.MagicMock()
     command.notarize = mock.MagicMock()
     command.dmgbuild = mock.MagicMock()
+    command.tools.subprocess = mock.MagicMock(spec=subprocess)
 
     return command
+
+
+def test_package_formats(package_command):
+    "Packaging formats are as expected"
+    assert package_command.packaging_formats == ["app", "dmg"]
+    assert package_command.default_packaging_format == "dmg"
+
+
+def test_device_option(package_command):
+    """The -d option can be parsed."""
+    options = package_command.parse_options(["--no-notarize"])
+
+    assert options == {
+        "adhoc_sign": False,
+        "identity": None,
+        "notarize_app": False,
+        "packaging_format": "dmg",
+        "sign_app": True,
+        "update": False,
+    }
 
 
 def test_package_app(package_command, first_app_with_binaries, tmp_path, capsys):
@@ -38,11 +67,18 @@ def test_package_app(package_command, first_app_with_binaries, tmp_path, capsys)
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -59,13 +95,13 @@ def test_package_app(package_command, first_app_with_binaries, tmp_path, capsys)
     # This ignores the calls that would have been made transitively
     # by calling sign_app()
     package_command.sign_file.assert_called_once_with(
-        tmp_path / "macOS" / "First App-0.0.1.dmg",
+        tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg",
         identity="CAFEBEEF",
     )
 
     # A request was made to notarize the DMG
     package_command.notarize.assert_called_once_with(
-        tmp_path / "macOS" / "First App-0.0.1.dmg",
+        tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg",
         team_id="DEADBEEF",
     )
 
@@ -75,7 +111,10 @@ def test_package_app(package_command, first_app_with_binaries, tmp_path, capsys)
 
 
 def test_package_app_no_notarization(
-    package_command, first_app_with_binaries, tmp_path, capsys
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
+    capsys,
 ):
     """A macOS App can be packaged without notarization."""
     # Select a codesigning identity
@@ -94,11 +133,18 @@ def test_package_app_no_notarization(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -115,7 +161,7 @@ def test_package_app_no_notarization(
     # This ignores the calls that would have been made transitively
     # by calling sign_app()
     package_command.sign_file.assert_called_once_with(
-        tmp_path / "macOS" / "First App-0.0.1.dmg",
+        tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg",
         identity="CAFEBEEF",
     )
 
@@ -145,7 +191,8 @@ def test_package_app_sign_failure(package_command, first_app_with_binaries, tmp_
 
     # A request has been made to sign the app
     package_command.sign_app.assert_called_once_with(
-        app=first_app_with_binaries, identity="CAFEBEEF"
+        app=first_app_with_binaries,
+        identity="CAFEBEEF",
     )
 
     # dmgbuild has not been called
@@ -166,6 +213,28 @@ def test_package_app_no_sign(package_command, first_app_with_binaries):
         sign_app=False,
         notarize_app=False,
     )
+
+    # No code signing or notarization has been performed.
+    assert package_command.select_identity.call_count == 0
+    assert package_command.sign_app.call_count == 0
+    assert package_command.sign_file.call_count == 0
+    assert package_command.notarize.call_count == 0
+
+
+def test_package_app_notarize_adhoc_signed(package_command, first_app_with_binaries):
+    """A macOS App cannot be notarized if adhoc signing is requested."""
+
+    # Package the app without code signing
+    with pytest.raises(
+        BriefcaseCommandError,
+        match=r"Can't notarize an app with an adhoc signing identity",
+    ):
+        package_command.package_app(
+            first_app_with_binaries,
+            sign_app=True,
+            notarize_app=True,
+            adhoc_sign=True,
+        )
 
     # No code signing or notarization has been performed.
     assert package_command.select_identity.call_count == 0
@@ -195,7 +264,7 @@ def test_package_app_notarize_without_sign(package_command, first_app_with_binar
     assert package_command.notarize.call_count == 0
 
 
-def test_package_app_notarize_without_sign_default_notariztion(
+def test_package_app_notarize_without_sign_default_notarization(
     package_command, first_app_with_binaries
 ):
     """A macOS App will default to no notarization if it wasn't signed."""
@@ -227,16 +296,24 @@ def test_package_app_adhoc_sign(package_command, first_app_with_binaries, tmp_pa
 
     # A request has been made to sign the app
     package_command.sign_app.assert_called_once_with(
-        app=first_app_with_binaries, identity="-"
+        app=first_app_with_binaries,
+        identity="-",
     )
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -253,7 +330,7 @@ def test_package_app_adhoc_sign(package_command, first_app_with_binaries, tmp_pa
     # This ignores the calls that would have been made transitively
     # by calling sign_app()
     package_command.sign_file.assert_called_once_with(
-        tmp_path / "macOS" / "First App-0.0.1.dmg",
+        tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg",
         identity="-",
     )
 
@@ -275,16 +352,24 @@ def test_package_app_adhoc_sign_default_notarization(
 
     # A request has been made to sign the app
     package_command.sign_app.assert_called_once_with(
-        app=first_app_with_binaries, identity="-"
+        app=first_app_with_binaries,
+        identity="-",
     )
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -301,7 +386,7 @@ def test_package_app_adhoc_sign_default_notarization(
     # This ignores the calls that would have been made transitively
     # by calling sign_app()
     package_command.sign_file.assert_called_once_with(
-        tmp_path / "macOS" / "First App-0.0.1.dmg",
+        tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg",
         identity="-",
     )
 
@@ -327,7 +412,7 @@ def test_package_bare_app(package_command, first_app_with_binaries, tmp_path):
 
     # A request has been made to notarize the app
     package_command.notarize.assert_called_once_with(
-        tmp_path / "macOS" / "app" / "First App" / "First App.app",
+        tmp_path / "base_path" / "macOS" / "app" / "First App" / "First App.app",
         team_id="DEADBEEF",
     )
 
@@ -390,7 +475,8 @@ def test_package_bare_app_no_notarization(package_command, first_app_with_binari
 
     # A request has been made to sign the app
     package_command.sign_app.assert_called_once_with(
-        app=first_app_with_binaries, identity="CAFEBEEF"
+        app=first_app_with_binaries,
+        identity="CAFEBEEF",
     )
 
     # No request has been made to notarize the app
@@ -409,7 +495,7 @@ def test_dmg_with_installer_icon(package_command, first_app_with_binaries, tmp_p
     """An installer icon can be specified for a DMG."""
     # Specify an installer icon, and create the matching file.
     first_app_with_binaries.installer_icon = "pretty"
-    with open(tmp_path / "pretty.icns", "wb") as f:
+    with open(tmp_path / "base_path" / "pretty.icns", "wb") as f:
         f.write(b"A pretty installer icon")
 
     # Package the app without signing or notarization
@@ -421,11 +507,18 @@ def test_dmg_with_installer_icon(package_command, first_app_with_binaries, tmp_p
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -435,13 +528,16 @@ def test_dmg_with_installer_icon(package_command, first_app_with_binaries, tmp_p
             "window_rect": ((600, 600), (350, 150)),
             "icon_size": 64,
             "text_size": 12,
-            "icon": os.fsdecode(tmp_path / "pretty.icns"),
+            "icon": os.fsdecode(tmp_path / "base_path" / "pretty.icns"),
         },
     )
 
 
 def test_dmg_with_missing_installer_icon(
-    package_command, first_app_with_binaries, tmp_path, capsys
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
+    capsys,
 ):
     """If an installer icon is specified, but the specific file is missing,
     there is a warning."""
@@ -457,11 +553,18 @@ def test_dmg_with_missing_installer_icon(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -482,12 +585,14 @@ def test_dmg_with_missing_installer_icon(
 
 
 def test_dmg_with_app_installer_icon(
-    package_command, first_app_with_binaries, tmp_path
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
 ):
     """An installer will fall back to an app icon for a DMG."""
     # Specify an app icon, and create the matching file.
     first_app_with_binaries.icon = "pretty_app"
-    with open(tmp_path / "pretty_app.icns", "wb") as f:
+    with open(tmp_path / "base_path" / "pretty_app.icns", "wb") as f:
         f.write(b"A pretty app icon")
 
     # Package the app without signing or notarization
@@ -499,11 +604,18 @@ def test_dmg_with_app_installer_icon(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -513,13 +625,16 @@ def test_dmg_with_app_installer_icon(
             "window_rect": ((600, 600), (350, 150)),
             "icon_size": 64,
             "text_size": 12,
-            "icon": os.fsdecode(tmp_path / "pretty_app.icns"),
+            "icon": os.fsdecode(tmp_path / "base_path" / "pretty_app.icns"),
         },
     )
 
 
 def test_dmg_with_missing_app_installer_icon(
-    package_command, first_app_with_binaries, tmp_path, capsys
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
+    capsys,
 ):
     """If an app icon is specified, but the specific file is missing, there is
     a warning."""
@@ -535,11 +650,18 @@ def test_dmg_with_missing_app_installer_icon(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -560,12 +682,14 @@ def test_dmg_with_missing_app_installer_icon(
 
 
 def test_dmg_with_installer_background(
-    package_command, first_app_with_binaries, tmp_path
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
 ):
     """An installer can be built with an installer background."""
     # Specify an installer background, and create the matching file.
     first_app_with_binaries.installer_background = "pretty_background"
-    with open(tmp_path / "pretty_background.png", "wb") as f:
+    with open(tmp_path / "base_path" / "pretty_background.png", "wb") as f:
         f.write(b"A pretty background")
 
     # Package the app without signing or notarization
@@ -577,11 +701,18 @@ def test_dmg_with_installer_background(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -591,13 +722,16 @@ def test_dmg_with_installer_background(
             "window_rect": ((600, 600), (350, 150)),
             "icon_size": 64,
             "text_size": 12,
-            "background": os.fsdecode(tmp_path / "pretty_background.png"),
+            "background": os.fsdecode(tmp_path / "base_path" / "pretty_background.png"),
         },
     )
 
 
 def test_dmg_with_missing_installer_background(
-    package_command, first_app_with_binaries, tmp_path, capsys
+    package_command,
+    first_app_with_binaries,
+    tmp_path,
+    capsys,
 ):
     """If an installer image is specified, but the specific file is missing,
     there is a warning."""
@@ -613,11 +747,18 @@ def test_dmg_with_missing_installer_background(
 
     # The DMG has been built as expected
     package_command.dmgbuild.build_dmg.assert_called_once_with(
-        filename=os.fsdecode(tmp_path / "macOS" / "First App-0.0.1.dmg"),
+        filename=os.fsdecode(tmp_path / "base_path" / "macOS" / "First App-0.0.1.dmg"),
         volume_name="First App 0.0.1",
         settings={
             "files": [
-                os.fsdecode(tmp_path / "macOS" / "app" / "First App" / "First App.app")
+                os.fsdecode(
+                    tmp_path
+                    / "base_path"
+                    / "macOS"
+                    / "app"
+                    / "First App"
+                    / "First App.app"
+                )
             ],
             "symlinks": {"Applications": "/Applications"},
             "icon_locations": {
@@ -635,3 +776,28 @@ def test_dmg_with_missing_installer_background(
         "Can't find pretty_background.png to use as DMG background\n"
         in capsys.readouterr().out
     )
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS specific test")
+def test_verify(package_command):
+    "If you're on macOS, you can verify tools."
+    # Mock the existence of the command line tools
+    package_command.tools.subprocess.check_output.side_effect = [
+        subprocess.CalledProcessError(cmd=["xcode-select", "--install"], returncode=1),
+        "clang 37.42",  # clang --version
+    ]
+
+    package_command.verify_tools()
+
+    assert package_command.tools.xcode_cli is not None
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="non-macOS specific test")
+def test_verify_non_macOS(package_command):
+    "If you're not on macOS, you can't verify tools."
+
+    with pytest.raises(
+        BriefcaseCommandError,
+        match="Code signing and / or building a DMG requires running on macOS.",
+    ):
+        package_command.verify_tools()

@@ -4,8 +4,14 @@ on:
   push:
     branches:
       - main
+  workflow_call:
+
 env:
   python_version: '3.9'
+
+defaults:
+  run:
+    shell: bash  # https://github.com/beeware/briefcase/pull/912
 
 jobs:
   pre-commit:
@@ -13,149 +19,147 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v3.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@v3.1.0
       - name: Set up Python
-        uses: actions/setup-python@v3.1.2
+        uses: actions/setup-python@v4.3.0
         with:
           python-version: ${{ env.python_version }}
       - name: Lint with Pre-commit
-        uses: pre-commit/action@v2.0.3
+        uses: pre-commit/action@v3.0.0
 
-  beefore:
-    name: Pre-test checks
-    needs: pre-commit
+  towncrier:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 4
-      matrix:
-        task:
-        - 'towncrier-check'
-        - 'docs'
-        - 'package'
     steps:
-    # Check out main; needed for towncrier comparisons.
-    - uses: actions/checkout@v3
+    # Fetch main branch for comparison, then check out current branch.
+    - uses: actions/checkout@v3.1.0
       with:
         fetch-depth: 0
         ref: main
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v3.1.0
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v4.3.0
+      with:
+        python-version: ${{ env.python_version }}
+    - run: pip install tox~=4.0
+    - run: tox -e towncrier-check
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+    # Fetch all refs so setuptools_scm can generate the correct version number.
+    - uses: actions/checkout@v3.1.0
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v4.3.0
+      with:
+        python-version: ${{ env.python_version }}
+    - run: pip install tox~=4.0
+    - run: tox -e package
+    - uses: actions/upload-artifact@v3
+      with:
+        name: packages
+        path: dist
+        if-no-files-found: error
+
+  unit-tests:
+    name: Unit tests
+    needs: [pre-commit, towncrier, package]
+    strategy:
+      matrix:
+        platform: ["macos", "ubuntu", "windows"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12-dev"]
+        include:
+          - experimental: false
+
+          - python-version: "3.12-dev"
+            experimental: true
+    runs-on: ${{ matrix.platform }}-latest
+    continue-on-error: ${{ matrix.experimental }}
+    steps:
+    - uses: actions/checkout@v3.1.0
       with:
         fetch-depth: 0
     - name: Set up Python
-      uses: actions/setup-python@v3.1.2
-      with:
-        python-version: ${{ env.python_version }}
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install --upgrade setuptools
-        pip install tox
-    - name: Run pre-test check
-      run: |
-        tox -e ${{ matrix.task }}
-
-  smoke:
-    name: Smoke test (3.7)
-    needs: beefore
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.7
-      uses: actions/setup-python@v3.1.2
-      with:
-        python-version: "3.7"
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install --upgrade setuptools
-        pip install tox
-    - name: Test
-      run: |
-        tox -e py
-    - name: Check coverage
-      uses: codecov/codecov-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        flags: unittests
-        fail_ci_if_error: true
-
-  python-versions:
-    # Only run this and subsequent steps on branches.
-    # `github.head_ref` only exists on pull requests.
-    if: github.head_ref
-    name: Python compatibility test
-    needs: smoke
-    runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 4
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11.0-alpha - 3.11.0']
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3.1.2
+      uses: actions/setup-python@v4.3.0
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Get packages
+      uses: actions/download-artifact@v3
+      with:
+        name: packages
+        path: dist
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install --upgrade setuptools
-        pip install tox
+        pip install setuptools_scm[toml]~=7.0 tox~=4.0 coverage[toml]~=6.5
     - name: Test
       run: |
-        tox -e py
-    - name: Check coverage
-      uses: codecov/codecov-action@v1
+        tox -e py --installpkg dist/*.whl
+    - name: Store coverage data
+      uses: actions/upload-artifact@v3
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        flags: unittests
-        fail_ci_if_error: true
+        name: coverage-data
+        path: ".coverage.*"
+        if-no-files-found: ignore
+    - name: Report platform coverage
+      run: |
+        python -m coverage combine
+        python -m coverage report
 
-  platform-compat:
-    name: Platform compatibility test
-    needs: smoke
-    strategy:
-      max-parallel: 4
-      matrix:
-        platform: ['macos-latest', 'windows-latest']
-    runs-on: ${{ matrix.platform }}
+  coverage:
+    name: Combine & check coverage.
+    runs-on: ubuntu-latest
+    needs:
+    - unit-tests
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python
-      uses: actions/setup-python@v3.1.2
+    - uses: actions/checkout@v3.1.0
       with:
-        python-version: ${{ env.python_version }}
+        fetch-depth: 0
+    - uses: actions/setup-python@v4.3.0
+      with:
+        # Use latest, so it understands all syntax.
+        python-version: "3.10"
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
+        python -m pip install --upgrade pip
         pip install --upgrade setuptools
-        pip install tox
-    - name: Test
-      run: |
-        tox -e py
-    - name: Check coverage
-      uses: codecov/codecov-action@v1
+        pip install coverage[toml]~=6.5
+    - name: Retrieve coverage data
+      uses: actions/download-artifact@v3
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        flags: unittests
-        fail_ci_if_error: true
+        name: coverage-data
+    - name: Normalize paths in coverage data
+      run: |
+        # See https://github.com/nedbat/coveragepy/issues/991
+        for coverage in `ls .coverage.*`; do
+          sqlite3 $coverage "update file set path = replace(path, '\\', '/')"
+        done
+    - name: Combine coverage
+      run: |
+        python -m coverage combine
+    - name: Generate coverage report
+      run: |
+        python -m coverage html --skip-covered --skip-empty
+        python -m coverage report --fail-under=100
+    - name: Upload HTML report if check failed.
+      uses: actions/upload-artifact@v3
+      with:
+        name: html-coverage-report
+        path: htmlcov
+      if: ${{ failure() }}
 
   verify-apps:
-    name: App verification
-    needs: platform-compat
+    name: Build apps
+    needs: unit-tests
     strategy:
-      max-parallel: 4
       matrix:
         os_name: ['macOS', 'windows', 'linux']
         framework: ['toga', 'pyside2', 'pyside6', 'ppb']
         include:
         - os_name: macOS
-          platform: macos-latest
+          platform: macos-12
           briefcase-data-dir: ~/Library/Caches/org.beeware.briefcase
           pip-cache-dir: ~/Library/Caches/pip
           docker-cache-dir: ~/Library/Containers/com.docker.docker/Data/vms/0/
@@ -174,7 +178,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
     - name: Cache Briefcase tools
-      uses: actions/cache@v3
+      uses: actions/cache@v3.0.11
       with:
         key: briefcase-${{ matrix.platform }}
         path: |
@@ -182,20 +186,24 @@ jobs:
           ${{ matrix.briefcase-data-dir }}
           ${{ matrix.pip-cache-dir }}
           ${{ matrix.docker-cache-dir }}
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v3.1.0
+      with:
+        fetch-depth: 0
     - name: Set up Python
-      uses: actions/setup-python@v3.1.2
+      uses: actions/setup-python@v4.3.0
       with:
         python-version: ${{ env.python_version }}
     - name: Install system dependencies
       if: matrix.platform == 'ubuntu-22.04'
       run: |
         sudo apt-get install -y flatpak flatpak-builder
-    - name: Install dependencies
-      run: |
-        pip install --upgrade pip
-        pip install --upgrade setuptools
-        pip install .
+    - name: Get packages
+      uses: actions/download-artifact@v3
+      with:
+        name: packages
+        path: dist
+    - name: Install packages
+      run: pip install dist/*.whl
     - name: Create App
       run: |
         cd tests/apps
@@ -235,9 +243,16 @@ jobs:
         briefcase build android
         briefcase package android --adhoc-sign
     - name: Build iOS App
-      if: matrix.platform == 'macos-latest' && matrix.framework == 'toga'
+      if: matrix.platform == 'macos-12' && matrix.framework == 'toga'
       run: |
         cd tests/apps/verify-${{ matrix.framework }}
         briefcase create iOS
-        briefcase build iOS -d "iPhone SE (2nd generation)"
+        briefcase build iOS
         briefcase package iOS --adhoc-sign
+    - name: Build Web App
+      if: matrix.framework == 'toga'
+      run: |
+        cd tests/apps/verify-${{ matrix.framework }}
+        briefcase create web
+        briefcase build web
+        briefcase package web

@@ -1,9 +1,13 @@
 import subprocess
 
 from briefcase.exceptions import BriefcaseCommandError
+from briefcase.integrations.base import Tool, ToolCache
 
 
-class Flatpak:
+class Flatpak(Tool):
+    name = "flatpak"
+    full_name = "Flatpak"
+
     DEFAULT_REPO_ALIAS = "flathub"
     DEFAULT_REPO_URL = "https://flathub.org/repo/flathub.flatpakrepo"
 
@@ -11,26 +15,23 @@ class Flatpak:
     DEFAULT_RUNTIME_VERSION = "21.08"
     DEFAULT_SDK = "org.freedesktop.Sdk"
 
-    def __init__(self, arch, subprocess, os):
-        self.arch = arch
-        self.subprocess = subprocess
-        self.os = os
+    def __init__(self, tools: ToolCache):
+        self.tools = tools
 
     @classmethod
-    def verify(cls, command):
+    def verify(cls, tools: ToolCache):
         """Verify that the Flatpak toolchain is available.
 
-        :param command: The command that needs to use flatpak
+        :param tools: ToolCache of available tools
+        :returns: A wrapper for the Flatpak tools.
         """
-        flatpak = Flatpak(
-            arch=command.host_arch,
-            subprocess=command.subprocess,
-            os=command.os,
-        )
+        # short circuit since already verified and available
+        if hasattr(tools, "flatpak"):
+            return tools.flatpak
+
+        flatpak = Flatpak(tools=tools)
         try:
-            output = command.subprocess.check_output(["flatpak", "--version"]).strip(
-                "\n"
-            )
+            output = tools.subprocess.check_output(["flatpak", "--version"]).strip("\n")
             parts = output.split(" ")
             try:
                 if parts[0] == "Flatpak":
@@ -42,7 +43,7 @@ class Flatpak:
                 else:
                     raise ValueError(f"Unexpected tool name {parts[0]}")
             except (ValueError, IndexError):
-                command.logger.warning(
+                tools.logger.warning(
                     """\
 *************************************************************************
 ** WARNING: Unable to determine the version of Flatpak                 **
@@ -82,7 +83,7 @@ You must install both flatpak and flatpak-builder.
             raise BriefcaseCommandError("Unable to invoke flatpak.") from e
 
         try:
-            output = command.subprocess.check_output(
+            output = tools.subprocess.check_output(
                 ["flatpak-builder", "--version"]
             ).strip("\n")
 
@@ -97,7 +98,7 @@ You must install both flatpak and flatpak-builder.
                 else:
                     raise ValueError(f"Unexpected tool name {parts[0]}")
             except (ValueError, IndexError):
-                command.logger.warning(
+                tools.logger.warning(
                     """\
 *************************************************************************
 ** WARNING: Unable to determine the version of flatpak-builder         **
@@ -137,6 +138,7 @@ You must install both flatpak and flatpak-builder.
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError("Unable to invoke flatpak-builder.") from e
 
+        tools.flatpak = flatpak
         return flatpak
 
     def verify_repo(self, repo_alias, url):
@@ -146,7 +148,7 @@ You must install both flatpak and flatpak-builder.
         :param url: The URL of the Flatpak repo.
         """
         try:
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 [
                     "flatpak",
                     "remote-add",
@@ -172,22 +174,24 @@ You must install both flatpak and flatpak-builder.
         :param sdk: The Flatpak SDK
         """
         try:
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 [
                     "flatpak",
                     "install",
                     "--assumeyes",
                     "--user",
                     repo_alias,
-                    f"{runtime}/{self.arch}/{runtime_version}",
-                    f"{sdk}/{self.arch}/{runtime_version}",
+                    f"{runtime}/{self.tools.host_arch}/{runtime_version}",
+                    f"{sdk}/{self.tools.host_arch}/{runtime_version}",
                 ],
                 check=True,
+                # flatpak install uses many animations that cannot be disabled
+                stream_output=False,
             )
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError(
-                f"Unable to install Flatpak runtime {runtime}/{self.arch}/{runtime_version} "
-                f"and SDK {sdk}/{self.arch}/{runtime_version} from repo {repo_alias}."
+                f"Unable to install Flatpak runtime {runtime}/{self.tools.host_arch}/{runtime_version} "
+                f"and SDK {sdk}/{self.tools.host_arch}/{runtime_version} from repo {repo_alias}."
             ) from e
 
     def build(self, bundle, app_name, path):
@@ -195,7 +199,7 @@ You must install both flatpak and flatpak-builder.
 
         On success, the app is installed into the user's local Flatpak install,
         and a shell script is created that can be used to start the app. The
-        shell file ins't really needed to start the app, but it serves as a
+        shell file isn't really needed to start the app, but it serves as a
         marker for a successful build that Briefcase can use.
 
         :param bundle: The bundle identifier for the app being built.
@@ -204,7 +208,7 @@ You must install both flatpak and flatpak-builder.
             manifest file.
         """
         try:
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 [
                     "flatpak-builder",
                     "--force-clean",
@@ -234,28 +238,41 @@ You must install both flatpak and flatpak-builder.
 flatpak run {bundle}.{app_name}
 """
                 )
-                self.os.chmod(bin_path, 0o755)
+                self.tools.os.chmod(bin_path, 0o755)
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError(f"Error while building app {app_name}.") from e
 
-    def run(self, bundle, app_name):
-        """Run a Flatpak.
+    def run(self, bundle, app_name, main_module=None):
+        """Run a Flatpak in a way that allows for log streaming.
 
         :param bundle: The bundle identifier for the app being built.
         :param app_name: The app name.
+        :param main_module: (Optional) The main module to run. Only required if you
+            want to override the default main module for the app.
+        :returns: A Popen object for the running app.
         """
-        try:
-            self.subprocess.run(
-                [
-                    "flatpak",
-                    "run",
-                    f"{bundle}.{app_name}",
-                ],
-                check=True,
-                stream_output=True,
-            )
-        except subprocess.CalledProcessError as e:
-            raise BriefcaseCommandError(f"Unable to start app {app_name}.") from e
+        if main_module:
+            # Set a BRIEFCASE_MAIN_MODULE environment variable
+            # to override the module at startup
+            kwargs = {
+                "env": {
+                    "BRIEFCASE_MAIN_MODULE": main_module,
+                }
+            }
+        else:
+            kwargs = {}
+
+        return self.tools.subprocess.Popen(
+            [
+                "flatpak",
+                "run",
+                f"{bundle}.{app_name}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+            **kwargs,
+        )
 
     def bundle(self, repo_url, bundle, app_name, version, build_path, output_path):
         """Bundle a Flatpak for distribution.
@@ -273,7 +290,7 @@ flatpak run {bundle}.{app_name}
         :param output_path: The path of the output file to create as an export.
         """
         try:
-            self.subprocess.run(
+            self.tools.subprocess.run(
                 [
                     "flatpak",
                     "build-bundle",

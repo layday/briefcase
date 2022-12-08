@@ -21,21 +21,7 @@ The procedure for cutting a new release is as follows:
 
    Check that the HEAD of release now matches upstream/main.
 
-2. Make sure the branch is ready for release. Ensure that:
-
-   1. The version number has been bumped.
-
-   2. The release notes are up to date. If they are, the `changes
-      <https://github.com/beeware/briefcase/tree/main/changes>`__ directory
-      should be empty, except for the ``template.rst`` file.
-
-   These two changes (the version bump and release notes update) should go
-   through the normal pull request and review process. They should generally
-   comprise the last PR merged before the release occurs.
-
-   If the version number *hasn't* been updated, or ``changes`` directory
-   *isn't* empty, you need to create a PR (using the normal development
-   process) that contains these changes. Run::
+2. Ensure that the release notes are up to date. Run::
 
          $ tox -e towncrier -- --draft
 
@@ -43,39 +29,82 @@ The procedure for cutting a new release is as follows:
 
          $ tox -e towncrier
 
-   to generate the updated release notes. Submit the PR; once it's been
-   reviewed and merged, you can restart the release process from step 1.
+   to generate the updated release notes.
 
-3. Tag the release, and push the branch and tag upstream::
+3. Ensure that there is a version branch for the new Briefcase version in
+   every template that Briefcase will use at runtime:
+
+   * briefcase-template
+   * briefcase-macOS-app-template
+   * briefcase-macOS-Xcode-template
+   * briefcase-windows-app-template
+   * briefcase-windows-VisualStudio-template
+   * briefcase-linux-appimage-template
+   * briefcase-linux-flatpak-template
+   * briefcase-iOS-Xcode-template
+   * briefcase-android-gradle-template
+   * briefcase-web-static-template
+
+4. Tag the release, and push the branch and tag upstream::
 
     $ git tag v1.2.3
-    $ git push upstream main
+    $ git push upstream HEAD:main
     $ git push upstream v1.2.3
 
-4. Pushing the tag will start a workflow to create a draft release on GitHub.
+5. Pushing the tag will start a workflow to create a draft release on GitHub.
    You can `follow the progress of the workflow on GitHub
    <https://github.com/beeware/briefcase/actions?query=workflow%3A%22Create+Release%22>`__;
    once the workflow completes, there should be a new `draft release
-   <https://github.com/beeware/briefcase/releases>`__.
+   <https://github.com/beeware/briefcase/releases>`__, and an entry on the
+   `Test PyPI server <https://test.pypi.org/project/briefcase/>`__.
 
-5. Log into ReadTheDocs, visit the `Versions tab
+   Confirm that this action successfully completes. If it fails, there's a
+   couple of possible causes:
+
+   a. The final upload to Test PyPI failed. Test PyPI is not have the same
+      service monitoring as PyPI-proper, so it sometimes has problems. However,
+      it's also not critical to the release process; if this step fails, you can
+      perform Step 6 by manually downloading the "packages" artifact from the
+      GitHub workflow instead.
+   b. The test apps fail to build. This is likely because you forgot to branch
+      one (or more) of the templates mentioned in Step 3. If this happens, you
+      can correct the missing template, and re-run the action through the Github
+      Actions GUI.
+   c. Something else fails in the build process. If the problem can be fixed
+      without a code change to the Briefcase repository (e.g., a transient
+      problem with build machines not being available), you can re-run the
+      action that failed through the Github Actions GUI. If the fix requires a
+      code change, delete the old tag, make the code change, and re-tag the
+      release.
+
+6. Create a clean virtual environment, install the new release from Test PyPI, and
+   perform any pre-release testing that may be appropriate::
+
+    $ python3 -m venv testvenv
+    $ . ./testvenv/bin/activate
+    (testvenv) $ pip install --extra-index-url https://test.pypi.org/simple/ briefcase==1.2.3
+    (testvenv) $ briefcase --version
+    briefcase 1.2.3
+    (testvenv) $ ... any other manual checks you want to perform ...
+
+7. Log into ReadTheDocs, visit the `Versions tab
    <https://readthedocs.org/projects/briefcase/versions/>`__, and activate the
    new version. Ensure that the build completes; if there's a problem, you
    may need to correct the build configuration, roll back and re-tag the release.
 
-6. Edit the GitHub release. Add release notes (you can use the text generated
+8. Edit the GitHub release. Add release notes (you can use the text generated
    by towncrier). Check the pre-release checkbox (if necessary).
 
-7. Double check everything, then click Publish. This will trigger a
+9. Double check everything, then click Publish. This will trigger a
    `publication workflow on GitHub
    <https://github.com/beeware/briefcase/actions?query=workflow%3A%22Upload+Python+Package%22>`__.
 
-8. Wait for the `package to appear on PyPI
+10. Wait for the `package to appear on PyPI
 <https://pypi.org/project/briefcase/>`__.
 
 Congratulations, you've just published a release!
 
-If anything went wrong during steps 3 or 5, you will need to delete the draft
-release from GitHub, and push an updated tag. Once the release has successfully
-appeared on PyPI, it cannot be changed; if you spot a problem in a published
+If anything went wrong during steps 4-10, you will need to re-start from step 4
+with a new version number. Once the release has successfully appeared on PyPI
+(or Test PyPI), it cannot be changed; if you spot a problem in a published
 package, you'll need to tag a completely new release.

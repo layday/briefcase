@@ -45,17 +45,11 @@ Additional options
 The following options can be provided at the command line when producing
 iOS projects
 
-build
------
+run
+---
 
 ``-d <device>`` / ``--device <device>``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The device simulator to target. Can be either a UDID, a device name (e.g.,
-``"iPhone 11"``), or a device name and OS version (``"iPhone 11::13.3"``).
-
-run
----
-
-The device simulator to target. Can be either a UDID, a device name (e.g.,
-``"iPhone 11"``), or a device name and OS version (``"iPhone 11::13.3"``).
+``"iPhone 11"``), or a device name and OS version (``"iPhone 11::iOS 13.3"``).

@@ -38,15 +38,15 @@ class UpgradeCommand(BaseCommand):
 
     def bundle_path(self, app):
         """A placeholder; Upgrade command doesn't have a bundle path."""
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplementedError()
 
     def binary_path(self, app):
         """A placeholder; Upgrade command doesn't have a binary path."""
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplementedError()
 
     def distribution_path(self, app, packaging_format):
         """A placeholder; Upgrade command doesn't have a distribution path."""
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplementedError()
 
     def add_options(self, parser):
         parser.add_argument(
@@ -70,13 +70,13 @@ class UpgradeCommand(BaseCommand):
 
         for klass in self.sdks:
             try:
-                tool = klass.verify(self, install=False)
+                tool = klass.verify(self.tools, install=False)
                 if tool.managed_install:
                     managed_tools[klass.name] = tool
                     try:
                         for plugin_klass in tool.plugins.values():
                             try:
-                                plugin = plugin_klass.verify(self, install=False)
+                                plugin = plugin_klass.verify(self.tools, install=False)
                                 # All plugins are managed
                                 managed_tools[plugin.name] = plugin
                             except BriefcaseCommandError:

@@ -10,6 +10,7 @@ distribute-*
 .python-version
 .pytest_cache
 .coverage
+.coverage.*
 coverage.xml
 venv*/
 .vscode/
@@ -33,3 +34,4 @@ venv*/
 *.wp[ur]
 
 tests/apps/verify-*/
+logs/

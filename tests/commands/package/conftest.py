@@ -3,12 +3,33 @@ import pytest
 from briefcase.commands import PackageCommand
 from briefcase.commands.base import full_options
 from briefcase.config import AppConfig
+from briefcase.console import Console, Log
+
+
+class DefaultPackageCommand(PackageCommand):
+    # An instance of PackageCommand that inherits the default
+    # behavior of packaging format handling. Define an output_format
+    # to satisfy the requirements of that interface.
+    output_format = "default"
+
+    # Two methods that are required by the interface, but are not needed
+    # for these tests.
+    def binary_path(self, app):
+        return NotImplementedError()
+
+    def distribution_path(self, app, packaging_format):
+        return NotImplementedError()
+
+
+@pytest.fixture
+def default_package_command(tmp_path):
+    return DefaultPackageCommand(base_path=tmp_path, logger=Log(), console=Console())
 
 
 class DummyPackageCommand(PackageCommand):
     """A dummy package command that doesn't actually do anything.
 
-    It only serves to track which actions would be performend.
+    It only serves to track which actions would be performed.
     """
 
     platform = "tester"
@@ -24,7 +45,9 @@ class DummyPackageCommand(PackageCommand):
         return "pkg"
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, apps=[], **kwargs)
+        kwargs.setdefault("logger", Log())
+        kwargs.setdefault("console", Console())
+        super().__init__(*args, apps={}, **kwargs)
 
         self.actions = []
 
@@ -41,23 +64,39 @@ class DummyPackageCommand(PackageCommand):
         super().verify_tools()
         self.actions.append(("verify",))
 
+    def verify_app_tools(self, app):
+        super().verify_app_tools(app=app)
+        self.actions.append(("verify-app-tools", app.app_name))
+
     def package_app(self, app, **kwargs):
-        self.actions.append(("package", app.app_name, kwargs))
+        self.actions.append(("package", app.app_name, kwargs.copy()))
         return full_options({"package_state": app.app_name}, kwargs)
 
     # These commands override the default behavior, simply tracking that
     # they were invoked, rather than instantiating a Create/Update/Build command.
     # This is for testing purposes.
     def create_command(self, app, **kwargs):
-        self.actions.append(("create", app.app_name, kwargs))
+        self.actions.append(("create", app.app_name, kwargs.copy()))
+        # Remove arguments consumed by the underlying call to create_app()
+        kwargs.pop("test_mode", None)
         return full_options({"create_state": app.app_name}, kwargs)
 
     def update_command(self, app, **kwargs):
-        self.actions.append(("update", app.app_name, kwargs))
+        self.actions.append(("update", app.app_name, kwargs.copy()))
+        # Remove arguments consumed by the underlying call to update_app()
+        kwargs.pop("update", None)
+        kwargs.pop("update_requirements", None)
+        kwargs.pop("update_resources", None)
+        kwargs.pop("test_mode", None)
         return full_options({"update_state": app.app_name}, kwargs)
 
     def build_command(self, app, **kwargs):
-        self.actions.append(("build", app.app_name, kwargs))
+        self.actions.append(("build", app.app_name, kwargs.copy()))
+        # Remove arguments consumed by the underlying call to build_app()
+        kwargs.pop("update", None)
+        kwargs.pop("update_requirements", None)
+        kwargs.pop("update_resources", None)
+        kwargs.pop("test_mode", None)
         return full_options({"build_state": app.app_name}, kwargs)
 
 

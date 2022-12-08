@@ -15,6 +15,42 @@ def test_no_args_package_one_app(package_command, first_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Package the first app
+        (
+            "package",
+            "first",
+            {
+                "packaging_format": "pkg",
+                "adhoc_sign": False,
+                "identity": None,
+                "sign_app": True,
+            },
+        ),
+    ]
+
+
+def test_package_one_explicit_app(package_command, first_app, second_app):
+    """If one app is named explicitly, package that app."""
+    # Add a single app
+    package_command.apps = {
+        "first": first_app,
+        "second": second_app,
+    }
+
+    # Configure no command line arguments
+    options = package_command.parse_options([])
+
+    # Run the build command on a specific app
+    package_command(first_app, **options)
+
+    # The right sequence of things will be done
+    assert package_command.actions == [
+        # Tools are verified
+        ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -47,6 +83,8 @@ def test_no_args_package_two_app(package_command, first_app, second_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for first app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -58,6 +96,8 @@ def test_no_args_package_two_app(package_command, first_app, second_app):
                 "sign_app": True,
             },
         ),
+        # App tools are verified for second app
+        ("verify-app-tools", "second"),
         # package the second app
         (
             "package",
@@ -75,14 +115,14 @@ def test_no_args_package_two_app(package_command, first_app, second_app):
 
 
 def test_no_sign_package_one_app(package_command, first_app):
-    """If there is one app, and a --no-sign argument,package doesnt sign the
+    """If there is one app, and a --no-sign argument,package doesn't sign the
     app."""
     # Add a single app
     package_command.apps = {
         "first": first_app,
     }
 
-    # Configure no command line options
+    # Configure a no-sign option
     options = package_command.parse_options(["--no-sign"])
 
     # Run the run command
@@ -92,6 +132,8 @@ def test_no_sign_package_one_app(package_command, first_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -114,7 +156,7 @@ def test_identity_arg_package_one_app(package_command, first_app):
         "first": first_app,
     }
 
-    # Configure no command line options
+    # Configure an identity option
     options = package_command.parse_options(["--identity", "test"])
 
     # Run the run command
@@ -124,6 +166,8 @@ def test_identity_arg_package_one_app(package_command, first_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -146,7 +190,7 @@ def test_adhoc_sign_package_one_app(package_command, first_app):
         "first": first_app,
     }
 
-    # Configure no command line options
+    # Configure an adhoc signing option
     options = package_command.parse_options(["--adhoc"])
 
     # Run the run command
@@ -156,6 +200,8 @@ def test_adhoc_sign_package_one_app(package_command, first_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -171,15 +217,15 @@ def test_adhoc_sign_package_one_app(package_command, first_app):
 
 
 def test_no_sign_args_package_two_app(package_command, first_app, second_app):
-    """If there are multiple apps, and a --no-sign argument,package doesnt sign
-    all the app."""
+    """If there are multiple apps, and a --no-sign argument,package doesn't
+    sign all the app."""
     # Add a single app
     package_command.apps = {
         "first": first_app,
         "second": second_app,
     }
 
-    # Configure no command line options
+    # Configure a no-sign option
     options = package_command.parse_options(["--no-sign"])
 
     # Run the run command
@@ -189,6 +235,8 @@ def test_no_sign_args_package_two_app(package_command, first_app, second_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for first app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -200,6 +248,8 @@ def test_no_sign_args_package_two_app(package_command, first_app, second_app):
                 "sign_app": False,
             },
         ),
+        # App tools are verified for second app
+        ("verify-app-tools", "second"),
         # package the second app
         (
             "package",
@@ -237,6 +287,8 @@ def test_adhoc_sign_args_package_two_app(package_command, first_app, second_app)
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for first app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -248,6 +300,8 @@ def test_adhoc_sign_args_package_two_app(package_command, first_app, second_app)
                 "sign_app": True,
             },
         ),
+        # App tools are verified for second app
+        ("verify-app-tools", "second"),
         # package the second app
         (
             "package",
@@ -273,7 +327,7 @@ def test_identity_sign_args_package_two_app(package_command, first_app, second_a
         "second": second_app,
     }
 
-    # Configure no command line options
+    # Configure an identity option
     options = package_command.parse_options(["--identity", "test"])
 
     # Run the run command
@@ -283,6 +337,8 @@ def test_identity_sign_args_package_two_app(package_command, first_app, second_a
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for first app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -294,6 +350,8 @@ def test_identity_sign_args_package_two_app(package_command, first_app, second_a
                 "sign_app": True,
             },
         ),
+        # App tools are verified for second app
+        ("verify-app-tools", "second"),
         # package the second app
         (
             "package",
@@ -327,6 +385,8 @@ def test_package_alternate_format(package_command, first_app):
     assert package_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -341,6 +401,61 @@ def test_package_alternate_format(package_command, first_app):
     ]
 
 
+def test_create_before_package(package_command, first_app_config):
+    """If the app hasn't been created, package creates the app first."""
+    # Add a single app
+    package_command.apps = {
+        "first": first_app_config,
+    }
+
+    # Configure no command line options
+    options = package_command.parse_options([])
+
+    # Run the run command
+    package_command(**options)
+
+    # The right sequence of things will be done
+    assert package_command.actions == [
+        # Tools are verified
+        ("verify",),
+        # Create and then build the first app
+        (
+            "create",
+            "first",
+            {
+                "adhoc_sign": False,
+                "identity": None,
+                "sign_app": True,
+            },
+        ),
+        (
+            "build",
+            "first",
+            {
+                "adhoc_sign": False,
+                "create_state": "first",
+                "identity": None,
+                "sign_app": True,
+            },
+        ),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Package the first app
+        (
+            "package",
+            "first",
+            {
+                "packaging_format": "pkg",
+                "adhoc_sign": False,
+                "identity": None,
+                "sign_app": True,
+                "create_state": "first",
+                "build_state": "first",
+            },
+        ),
+    ]
+
+
 def test_update_package_one_app(package_command, first_app):
     """If there is one app, and a -u argument, package updates the app."""
     # Add a single app
@@ -348,7 +463,7 @@ def test_update_package_one_app(package_command, first_app):
         "first": first_app,
     }
 
-    # Configure no command line options
+    # Configure an update option
     options = package_command.parse_options(["-u"])
 
     # Run the run command
@@ -366,6 +481,8 @@ def test_update_package_one_app(package_command, first_app):
                 "adhoc_sign": False,
                 "identity": None,
                 "sign_app": True,
+                "update_requirements": True,
+                "update_resources": True,
             },
         ),
         (
@@ -378,6 +495,8 @@ def test_update_package_one_app(package_command, first_app):
                 "update_state": "first",
             },
         ),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -402,7 +521,7 @@ def test_update_package_two_app(package_command, first_app, second_app):
         "second": second_app,
     }
 
-    # Configure no command line options
+    # Configure an update option
     options = package_command.parse_options(["--update"])
 
     # Run the package command
@@ -420,6 +539,8 @@ def test_update_package_two_app(package_command, first_app, second_app):
                 "adhoc_sign": False,
                 "identity": None,
                 "sign_app": True,
+                "update_requirements": True,
+                "update_resources": True,
             },
         ),
         (
@@ -432,6 +553,8 @@ def test_update_package_two_app(package_command, first_app, second_app):
                 "update_state": "first",
             },
         ),
+        # App tools are verified for first app
+        ("verify-app-tools", "first"),
         # Package the first app
         (
             "package",
@@ -453,6 +576,8 @@ def test_update_package_two_app(package_command, first_app, second_app):
                 "adhoc_sign": False,
                 "identity": None,
                 "sign_app": True,
+                "update_requirements": True,
+                "update_resources": True,
                 # state of previous calls have been preserved.
                 "update_state": "first",
                 "build_state": "first",
@@ -472,6 +597,8 @@ def test_update_package_two_app(package_command, first_app, second_app):
                 "package_state": "first",
             },
         ),
+        # App tools are verified for second app
+        ("verify-app-tools", "second"),
         # package the second app
         (
             "package",
@@ -485,6 +612,50 @@ def test_update_package_two_app(package_command, first_app, second_app):
                 "build_state": "second",
                 # state of previous calls have been preserved.
                 "package_state": "first",
+            },
+        ),
+    ]
+
+
+def test_build_before_package(package_command, first_app_unbuilt):
+    """If the an app hasn't been built, it is built before packaging."""
+    # Add a single app
+    package_command.apps = {
+        "first": first_app_unbuilt,
+    }
+
+    # Configure no commmand line options
+    options = package_command.parse_options([])
+
+    # Run the run command
+    package_command(**options)
+
+    # The right sequence of things will be done
+    assert package_command.actions == [
+        # Tools are verified
+        ("verify",),
+        # Build the first app
+        (
+            "build",
+            "first",
+            {
+                "adhoc_sign": False,
+                "identity": None,
+                "sign_app": True,
+            },
+        ),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Package the first app
+        (
+            "package",
+            "first",
+            {
+                "packaging_format": "pkg",
+                "adhoc_sign": False,
+                "identity": None,
+                "sign_app": True,
+                "build_state": "first",
             },
         ),
     ]

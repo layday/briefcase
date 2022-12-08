@@ -1,18 +1,16 @@
-from unittest import mock
-
 import pytest
 
+from briefcase.commands.create import git
 from briefcase.exceptions import BriefcaseCommandError
 
 
-def test_no_git(update_command):
+def test_no_git(update_command, monkeypatch):
     """If Git is not installed, an error is raised."""
-    # Mock a non-existent git
-    integrations = mock.MagicMock()
-    integrations.git.verify_git_is_installed.side_effect = BriefcaseCommandError(
-        "Briefcase requires git, but it is not installed"
-    )
-    update_command.integrations = integrations
+
+    def monkeypatch_verify_git(*a, **kw):
+        raise BriefcaseCommandError("Briefcase requires git, but it is not installed")
+
+    monkeypatch.setattr(git, "verify_git_is_installed", monkeypatch_verify_git)
 
     # The command will fail tool verification.
     with pytest.raises(
@@ -32,10 +30,10 @@ def test_update(update_command, first_app, second_app):
     assert update_command.actions == [
         ("verify",),
         # Update the first app
-        ("code", update_command.apps["first"]),
+        ("code", update_command.apps["first"], False),
         ("cleanup", update_command.apps["first"]),
         # Update the second app
-        ("code", update_command.apps["second"]),
+        ("code", update_command.apps["second"], False),
         ("cleanup", update_command.apps["second"]),
     ]
 
@@ -52,35 +50,14 @@ def test_update_single(update_command, first_app, second_app):
     assert update_command.actions == [
         ("verify",),
         # update the first app
-        ("code", update_command.apps["first"]),
+        ("code", update_command.apps["first"], False),
         ("cleanup", update_command.apps["first"]),
     ]
 
 
-def test_update_with_dependencies(update_command, first_app, second_app):
-    """The update command can be called, requesting a dependencies update."""
-    # Configure no command line options
-    options = update_command.parse_options(["-d"])
-
-    update_command(**options)
-
-    # The right sequence of things will be done
-    assert update_command.actions == [
-        ("verify",),
-        # Update the first app
-        ("dependencies", update_command.apps["first"]),
-        ("code", update_command.apps["first"]),
-        ("cleanup", update_command.apps["first"]),
-        # Update the second app
-        ("dependencies", update_command.apps["second"]),
-        ("code", update_command.apps["second"]),
-        ("cleanup", update_command.apps["second"]),
-    ]
-
-
-def test_update_with_resources(update_command, first_app, second_app):
-    """The update command can be called, requesting a resources update."""
-    # Configure no command line options
+def test_update_with_requirements(update_command, first_app, second_app):
+    """The update command can be called, requesting a requirements update."""
+    # Configure a requirements update
     options = update_command.parse_options(["-r"])
 
     update_command(**options)
@@ -89,11 +66,32 @@ def test_update_with_resources(update_command, first_app, second_app):
     assert update_command.actions == [
         ("verify",),
         # Update the first app
-        ("code", update_command.apps["first"]),
+        ("code", update_command.apps["first"], False),
+        ("requirements", update_command.apps["first"], False),
+        ("cleanup", update_command.apps["first"]),
+        # Update the second app
+        ("code", update_command.apps["second"], False),
+        ("requirements", update_command.apps["second"], False),
+        ("cleanup", update_command.apps["second"]),
+    ]
+
+
+def test_update_with_resources(update_command, first_app, second_app):
+    """The update command can be called, requesting a resources update."""
+    # Configure no command line options
+    options = update_command.parse_options(["--update-resources"])
+
+    update_command(**options)
+
+    # The right sequence of things will be done
+    assert update_command.actions == [
+        ("verify",),
+        # Update the first app
+        ("code", update_command.apps["first"], False),
         ("resources", update_command.apps["first"]),
         ("cleanup", update_command.apps["first"]),
         # Update the second app
-        ("code", update_command.apps["second"]),
+        ("code", update_command.apps["second"], False),
         ("resources", update_command.apps["second"]),
         ("cleanup", update_command.apps["second"]),
     ]

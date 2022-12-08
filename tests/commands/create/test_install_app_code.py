@@ -1,9 +1,13 @@
+import os
+import shutil
 from unittest import mock
 
 import pytest
 
 import briefcase
 from briefcase.commands.create import MissingAppSources
+
+from ...utils import create_file
 
 
 def assert_dist_info(app_path):
@@ -26,6 +30,7 @@ Formal-Name: My App
 App-ID: com.example.my-app
 Version: 1.2.3
 Home-page: https://example.com
+Download-URL: https://example.com
 Author: First Last
 Author-email: first@example.com
 Summary: This is a simple app
@@ -42,18 +47,18 @@ def test_no_code(
     """If an app has no code (?!), install_app_code is mostly a no-op; but
     distinfo is created."""
     # Mock shutil so we can track usage.
-    create_command.shutil = mock.MagicMock()
-    create_command.os = mock.MagicMock()
+    create_command.tools.shutil = mock.MagicMock(spec_set=shutil)
+    create_command.tools.os = mock.MagicMock(spec_set=os)
 
     myapp.sources = None
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
-    # No request was made to install dependencies
-    create_command.shutil.rmtree.assert_called_once_with(app_path)
-    create_command.os.mkdir.assert_called_once_with(app_path)
-    create_command.shutil.copytree.assert_not_called()
-    create_command.shutil.copy.assert_not_called()
+    # No request was made to install requirements
+    create_command.tools.shutil.rmtree.assert_called_once_with(app_path)
+    create_command.tools.os.mkdir.assert_called_once_with(app_path)
+    create_command.tools.shutil.copytree.assert_not_called()
+    create_command.tools.shutil.copy.assert_not_called()
 
     # Metadata has been created
     assert_dist_info(app_path)
@@ -68,18 +73,18 @@ def test_empty_code(
     """If an app has an empty sources list (?!), install_app_code is mostly a
     no-op; but distinfo is created."""
     # Mock shutil so we can track usage.
-    create_command.shutil = mock.MagicMock()
-    create_command.os = mock.MagicMock()
+    create_command.tools.shutil = mock.MagicMock(spec_set=shutil)
+    create_command.tools.os = mock.MagicMock(spec_set=os)
 
     myapp.sources = []
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
-    # No request was made to install dependencies
-    create_command.shutil.rmtree.assert_called_once_with(app_path)
-    create_command.os.mkdir.assert_called_once_with(app_path)
-    create_command.shutil.copytree.assert_not_called()
-    create_command.shutil.copy.assert_not_called()
+    # No request was made to install requirements
+    create_command.tools.shutil.rmtree.assert_called_once_with(app_path)
+    create_command.tools.os.mkdir.assert_called_once_with(app_path)
+    create_command.tools.shutil.copytree.assert_not_called()
+    create_command.tools.shutil.copy.assert_not_called()
 
     # Metadata has been created
     assert_dist_info(app_path)
@@ -92,11 +97,11 @@ def test_source_missing(
     app_requirements_path_index,
 ):
     """If an app defines sources that are missing, an error is raised."""
-    # Set the app definition to point at sources that don't exsit
+    # Set the app definition to point at sources that don't exist
     myapp.sources = ["missing"]
 
     with pytest.raises(MissingAppSources):
-        create_command.install_app_code(myapp)
+        create_command.install_app_code(myapp, test_mode=False)
 
     # Distinfo won't be created.
     dist_info_path = app_path / "myapp-1.2.3.dist-info"
@@ -120,25 +125,23 @@ def test_source_dir(
     #     shallow.py
     #     submodule /
     #       deeper.py
-    first_src = tmp_path / "project" / "src" / "first" / "demo.py"
-    first_src.parent.mkdir(parents=True)
-    with (first_src).open("w") as f:
-        f.write("print('hello first')\n")
-
-    second_shallow_src = tmp_path / "project" / "src" / "second" / "shallow.py"
-    second_deep_src = (
-        tmp_path / "project" / "src" / "second" / "submodule" / "deeper.py"
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
     )
-    second_deep_src.parent.mkdir(parents=True)
-    with (second_shallow_src).open("w") as f:
-        f.write("print('hello shallow second')\n")
-    with (second_deep_src).open("w") as f:
-        f.write("print('hello deep second')\n")
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "submodule" / "deeper.py",
+        "print('hello deep second')\n",
+    )
 
     # Set the app definition, and install sources
     myapp.sources = ["src/first", "src/second"]
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
     # All the sources exist.
     assert (app_path / "first").exists()
@@ -153,6 +156,10 @@ def test_source_dir(
     # Metadata has been created
     assert_dist_info(app_path)
 
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/first", "src/second"]
+    assert myapp.test_sources is None
+
 
 def test_source_file(
     create_command,
@@ -164,22 +171,21 @@ def test_source_file(
     """If an app defines single file sources, the files are copied."""
     # Create the mock sources
     # src /
-    #   first /
-    #     demo.py
-    #   other.py
-    first_src = tmp_path / "project" / "src" / "first" / "demo.py"
-    first_src.parent.mkdir(parents=True)
-    with (first_src).open("w") as f:
-        f.write("print('hello first')\n")
-
-    second_src = tmp_path / "project" / "src" / "other.py"
-    with (second_src).open("w") as f:
-        f.write("print('hello second')\n")
+    #   demo.py
+    # other.py
+    create_file(
+        tmp_path / "project" / "src" / "demo.py",
+        "print('hello first')\n",
+    )
+    create_file(
+        tmp_path / "project" / "other.py",
+        "print('hello second')\n",
+    )
 
     # Set the app definition, and install sources
-    myapp.sources = ["src/first/demo.py", "src/other.py"]
+    myapp.sources = ["src/demo.py", "other.py"]
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
     # All the sources exist.
     assert (app_path / "demo.py").exists()
@@ -188,15 +194,19 @@ def test_source_file(
     # Metadata has been created
     assert_dist_info(app_path)
 
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/demo.py", "other.py"]
+    assert myapp.test_sources is None
 
-def test_replace_sources(
+
+def test_no_existing_app_folder(
     create_command,
     myapp,
     tmp_path,
     app_path,
     app_requirements_path_index,
 ):
-    """Stale sources and dist-info are removed on installation."""
+    """If there's no pre-existing app folder, one is created."""
     # Create the mock sources
     # src /
     #   first /
@@ -205,63 +215,26 @@ def test_replace_sources(
     #     shallow.py
     #     submodule /
     #       deeper.py
-    first_src = tmp_path / "project" / "src" / "first" / "demo.py"
-    first_src.parent.mkdir(parents=True)
-    with (first_src).open("w") as f:
-        f.write("print('hello first')\n")
-
-    second_shallow_src = tmp_path / "project" / "src" / "second" / "shallow.py"
-    second_deep_src = (
-        tmp_path / "project" / "src" / "second" / "submodule" / "deeper.py"
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
     )
-    second_deep_src.parent.mkdir(parents=True)
-    with (second_shallow_src).open("w") as f:
-        f.write("print('hello shallow second')\n")
-    with (second_deep_src).open("w") as f:
-        f.write("print('hello deep second')\n")
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "submodule" / "deeper.py",
+        "print('hello deep second')\n",
+    )
 
-    # Also create some existing sources:
-    # path / to / app /
-    #   demo.py
-    #   stale.py
-    #   second /
-    #     shallow.py
-    #     stale.py
-    #     submodule /
-    #       deeper.py
-    #     broken /
-    #       other.py
-    #   my_app-1.2.2.dist-info /
-
-    old_first_src = app_path / "demo.py"
-    with (old_first_src).open("w") as f:
-        f.write("print('old hello first')\n")
-
-    old_stale_src = app_path / "stale.py"
-    with (old_stale_src).open("w") as f:
-        f.write("print('stale hello first')\n")
-
-    old_dist_info_dir = app_path / "my_app-1.2.2.dist-info"
-    old_second_shallow_src = app_path / "src" / "second" / "shallow.py"
-    old_second_stale_src = app_path / "src" / "second" / "stale.py"
-    old_second_deep_src = app_path / "src" / "second" / "submodule" / "deeper.py"
-    old_second_broken_src = app_path / "src" / "second" / "broken" / "other.py"
-    old_dist_info_dir.mkdir()
-    old_second_deep_src.parent.mkdir(parents=True)
-    old_second_broken_src.parent.mkdir(parents=True)
-    with (old_second_shallow_src).open("w") as f:
-        f.write("print('old hello shallow second')\n")
-    with (old_second_stale_src).open("w") as f:
-        f.write("print('hello second stale')\n")
-    with (old_second_deep_src).open("w") as f:
-        f.write("print('old hello deep second')\n")
-    with (old_second_broken_src).open("w") as f:
-        f.write("print('hello second deep broken')\n")
+    # Remove the app folder created by the test fixture.
+    shutil.rmtree(app_path)
 
     # Set the app definition, and install sources
     myapp.sources = ["src/first/demo.py", "src/second"]
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
     # All the new sources exist, and contain the new content.
     assert (app_path / "demo.py").exists()
@@ -287,6 +260,113 @@ def test_replace_sources(
     assert not (app_path / "my_app-1.2.2.dist-info").exists()
     assert_dist_info(app_path)
 
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/first/demo.py", "src/second"]
+    assert myapp.test_sources is None
+
+
+def test_replace_sources(
+    create_command,
+    myapp,
+    tmp_path,
+    app_path,
+    app_requirements_path_index,
+):
+    """Stale sources and dist-info are removed on installation."""
+    # Create the mock sources
+    # src /
+    #   first /
+    #     demo.py
+    #   second /
+    #     shallow.py
+    #     submodule /
+    #       deeper.py
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "submodule" / "deeper.py",
+        "print('hello deep second')\n",
+    )
+
+    # Also create some existing sources:
+    # path / to / app /
+    #   demo.py
+    #   stale.py
+    #   second /
+    #     shallow.py
+    #     stale.py
+    #     submodule /
+    #       deeper.py
+    #     broken /
+    #       other.py
+    #   my_app-1.2.2.dist-info /
+    create_file(
+        app_path / "src" / "demo.py",
+        "print('old hello first')\n",
+    )
+    create_file(
+        app_path / "src" / "stale.py",
+        "print('stale hello first')\n",
+    )
+    create_file(
+        app_path / "src" / "second" / "shallow.py",
+        "print('old hello shallow second')\n",
+    )
+    create_file(
+        app_path / "src" / "second" / "stale.py",
+        "print('hello second stale')\n",
+    )
+    create_file(
+        app_path / "src" / "second" / "submodule" / "deeper.py",
+        "print('hello deep second')\n",
+    )
+    create_file(
+        app_path / "src" / "second" / "broken" / "other.py",
+        "print('hello second deep broken')\n",
+    )
+
+    old_dist_info_dir = app_path / "my_app-1.2.2.dist-info"
+    old_dist_info_dir.mkdir()
+
+    # Set the app definition, and install sources
+    myapp.sources = ["src/first/demo.py", "src/second"]
+
+    create_command.install_app_code(myapp, test_mode=False)
+
+    # All the new sources exist, and contain the new content.
+    assert (app_path / "demo.py").exists()
+    with (app_path / "demo.py").open() as f:
+        assert f.read() == "print('hello first')\n"
+
+    assert (app_path / "second").exists()
+    assert (app_path / "second" / "shallow.py").exists()
+    with (app_path / "second" / "shallow.py").open() as f:
+        assert f.read() == "print('hello shallow second')\n"
+
+    assert (app_path / "second" / "submodule").exists()
+    assert (app_path / "second" / "submodule" / "deeper.py").exists()
+    with (app_path / "second" / "submodule" / "deeper.py").open() as f:
+        assert f.read() == "print('hello deep second')\n"
+
+    # The stale/broken modules have been removed.
+    assert not (app_path / "stale.py").exists()
+    assert not (app_path / "second" / "stale.py").exists()
+    assert not (app_path / "second" / "broken").exists()
+
+    # Metadata has been updated.
+    assert not (app_path / "my_app-1.2.2.dist-info").exists()
+    assert_dist_info(app_path)
+
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/first/demo.py", "src/second"]
+    assert myapp.test_sources is None
+
 
 def test_non_latin_metadata(
     create_command,
@@ -303,18 +383,18 @@ def test_non_latin_metadata(
     myapp.description = "A Møøse once bit my sister..."
 
     # Mock shutil so we can track usage.
-    create_command.shutil = mock.MagicMock()
-    create_command.os = mock.MagicMock()
+    create_command.tools.shutil = mock.MagicMock(spec_set=shutil)
+    create_command.tools.os = mock.MagicMock(spec_set=os)
 
     myapp.sources = []
 
-    create_command.install_app_code(myapp)
+    create_command.install_app_code(myapp, test_mode=False)
 
-    # No request was made to install dependencies
-    create_command.shutil.rmtree.assert_called_once_with(app_path)
-    create_command.os.mkdir.assert_called_once_with(app_path)
-    create_command.shutil.copytree.assert_not_called()
-    create_command.shutil.copy.assert_not_called()
+    # No request was made to install requirements
+    create_command.tools.shutil.rmtree.assert_called_once_with(app_path)
+    create_command.tools.os.mkdir.assert_called_once_with(app_path)
+    create_command.tools.shutil.copytree.assert_not_called()
+    create_command.tools.shutil.copy.assert_not_called()
 
     # The dist-info file was created, and is readable.
     dist_info_path = app_path / "my_app-1.2.3.dist-info"
@@ -336,8 +416,226 @@ Formal-Name: My büggy app
 App-ID: com.example.my-app
 Version: 1.2.3
 Home-page: https://xn--7qvx15a.cn
+Download-URL: https://xn--7qvx15a.cn
 Author: José Weiß-Müller
 Author-email: 钱华林@中科院.中国
 Summary: A Møøse once bit my sister...
 """
         )
+
+
+def test_test_sources(
+    create_command,
+    myapp,
+    tmp_path,
+    app_path,
+    app_requirements_path_index,
+):
+    """If an app defines test code, but we're not in test mode, it isn't
+    copied."""
+    # Create the mock sources
+    # src /
+    #   first /
+    #     demo.py
+    #   second /
+    #     shallow.py
+    # tests /
+    #   first.py
+    #   deep /
+    #     test_case.py
+    # othertests/
+    #   tests_more.py
+    #   special /
+    #     test_weird.py
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "first.py",
+        "print('hello first test suite')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "deep" / "test_case.py",
+        "print('hello test case')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "test_more.py",
+        "print('hello more tests')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "special" / "test_weird.py",
+        "print('hello weird tests')\n",
+    )
+
+    # Set the app definition, and install sources
+    myapp.sources = ["src/first", "src/second"]
+    myapp.test_sources = ["tests", "othertests"]
+
+    create_command.install_app_code(myapp, test_mode=False)
+
+    # App sources exist.
+    assert (app_path / "first").exists()
+    assert (app_path / "first" / "demo.py").exists()
+
+    assert (app_path / "second").exists()
+    assert (app_path / "second" / "shallow.py").exists()
+
+    # Test sources do not exist
+    assert not (app_path / "tests").exists()
+    assert not (app_path / "othertests").exists()
+
+    # Metadata has been created
+    assert_dist_info(app_path)
+
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/first", "src/second"]
+    assert myapp.test_sources == ["tests", "othertests"]
+
+
+def test_test_sources_test_mode(
+    create_command,
+    myapp,
+    tmp_path,
+    app_path,
+    app_requirements_path_index,
+):
+    """If an app defines test code, and we're in test mode, test sources are
+    copied."""
+    # Create the mock sources
+    # src /
+    #   first /
+    #     demo.py
+    #   second /
+    #     shallow.py
+    # tests /
+    #   first.py
+    #   deep /
+    #     test_case.py
+    # othertests/
+    #   tests_more.py
+    #   special /
+    #     test_weird.py
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "first.py",
+        "print('hello first test suite')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "deep" / "test_case.py",
+        "print('hello test case')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "test_more.py",
+        "print('hello more tests')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "special" / "test_weird.py",
+        "print('hello weird tests')\n",
+    )
+
+    # Set the app definition, and install sources
+    myapp.sources = ["src/first", "src/second"]
+    myapp.test_sources = ["tests", "othertests"]
+
+    create_command.install_app_code(myapp, test_mode=True)
+
+    # App sources exist.
+    assert (app_path / "first").exists()
+    assert (app_path / "first" / "demo.py").exists()
+
+    assert (app_path / "second").exists()
+    assert (app_path / "second" / "shallow.py").exists()
+
+    # Test sources exist
+    assert (app_path / "tests" / "first.py").exists()
+    assert (app_path / "tests" / "deep" / "test_case.py").exists()
+
+    assert (app_path / "othertests" / "test_more.py").exists()
+    assert (app_path / "othertests" / "special" / "test_weird.py").exists()
+
+    # Metadata has been created
+    assert_dist_info(app_path)
+
+    # Original app definitions haven't changed
+    assert myapp.sources == ["src/first", "src/second"]
+    assert myapp.test_sources == ["tests", "othertests"]
+
+
+def test_only_test_sources_test_mode(
+    create_command,
+    myapp,
+    tmp_path,
+    app_path,
+    app_requirements_path_index,
+):
+    """If an app only defines test code, and we're in test mode, test sources
+    are copied."""
+    # Create the mock sources
+    # tests /
+    #   first.py
+    #   deep /
+    #     test_case.py
+    # othertests/
+    #   tests_more.py
+    #   special /
+    #     test_weird.py
+    create_file(
+        tmp_path / "project" / "src" / "first" / "demo.py",
+        "print('hello first')\n",
+    )
+    create_file(
+        tmp_path / "project" / "src" / "second" / "shallow.py",
+        "print('hello shallow second')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "first.py",
+        "print('hello first test suite')\n",
+    )
+    create_file(
+        tmp_path / "project" / "tests" / "deep" / "test_case.py",
+        "print('hello test case')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "test_more.py",
+        "print('hello more tests')\n",
+    )
+    create_file(
+        tmp_path / "project" / "othertests" / "special" / "test_weird.py",
+        "print('hello weird tests')\n",
+    )
+
+    # Set the app definition, and install sources
+    myapp.sources = None
+    myapp.test_sources = ["tests", "othertests"]
+
+    create_command.install_app_code(myapp, test_mode=True)
+
+    # App sources do not exist.
+    assert not (app_path / "first").exists()
+    assert not (app_path / "second").exists()
+
+    # Test sources exist
+    assert (app_path / "tests" / "first.py").exists()
+    assert (app_path / "tests" / "deep" / "test_case.py").exists()
+
+    assert (app_path / "othertests" / "test_more.py").exists()
+    assert (app_path / "othertests" / "special" / "test_weird.py").exists()
+
+    # Metadata has been created
+    assert_dist_info(app_path)
+
+    # Original app definitions haven't changed
+    assert myapp.sources is None
+    assert myapp.test_sources == ["tests", "othertests"]

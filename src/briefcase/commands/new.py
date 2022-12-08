@@ -1,18 +1,20 @@
-import os
 import re
-import subprocess
 import unicodedata
 from email.utils import parseaddr
 from typing import Optional
 from urllib.parse import urlparse
 
-from cookiecutter import exceptions as cookiecutter_exceptions
+from packaging.version import Version
 
-from briefcase.config import is_valid_app_name, is_valid_bundle_identifier
-from briefcase.exceptions import NetworkFailure
+import briefcase
+from briefcase.config import (
+    is_valid_app_name,
+    is_valid_bundle_identifier,
+    make_class_name,
+)
+from briefcase.integrations import git
 
-from .base import BaseCommand, BriefcaseCommandError
-from .create import InvalidTemplateRepository
+from .base import BaseCommand, BriefcaseCommandError, TemplateUnsupportedVersion
 
 
 def titlecase(s):
@@ -88,49 +90,6 @@ class NewCommand(BaseCommand):
             dest="template",
             help="The cookiecutter template to use for the new project",
         )
-
-    def make_class_name(self, formal_name):
-        """Construct a valid class name from a formal name.
-
-        :param formal_name: The formal name
-        :returns: The app's class name
-        """
-        # Identifiers (including class names) can be unicode.
-        # https://docs.python.org/3/reference/lexical_analysis.html#identifiers
-        xid_start = {
-            "Lu",  # uppercase letters
-            "Ll",  # lowercase letters
-            "Lt",  # titlecase letters
-            "Lm",  # modifier letters
-            "Lo",  # other letters
-            "Nl",  # letter numbers
-        }
-        xid_continue = xid_start.union(
-            {
-                "Mn",  # nonspacing marks
-                "Mc",  # spacing combining marks
-                "Nd",  # decimal number
-                "Pc",  # connector punctuations
-            }
-        )
-
-        # Normalize to NFKC form, then remove any character that isn't
-        # in the allowed categories, or is the underscore character
-        class_name = "".join(
-            ch
-            for ch in unicodedata.normalize("NFKC", formal_name)
-            if unicodedata.category(ch) in xid_continue or ch in {"_"}
-        )
-
-        # If the first character isn't in the 'start' character set,
-        # and it isn't already an underscore, prepend an underscore.
-        if (
-            unicodedata.category(class_name[0]) not in xid_start
-            and class_name[0] != "_"
-        ):
-            class_name = f"_{class_name}"
-
-        return class_name
 
     def make_app_name(self, formal_name):
         """Construct a candidate app name from a formal name.
@@ -345,7 +304,7 @@ used as you type it.""",
         )
 
         # The class name can be completely derived from the formal name.
-        class_name = self.make_class_name(formal_name)
+        class_name = make_class_name(formal_name)
 
         default_app_name = self.make_app_name(formal_name)
         app_name = self.input_text(
@@ -485,9 +444,8 @@ What GUI toolkit do you want to use for this project?""",
         self.logger.info()
         self.logger.info(f"Generating a new application '{context['formal_name']}'")
 
-        cached_template = self.update_cookiecutter_cache(
-            template=template, branch="v0.3"
-        )
+        version = Version(briefcase.__version__)
+        branch = f"v{version.base_version}"
 
         # Make extra sure we won't clobber an existing application.
         if (self.base_path / context["app_name"]).exists():
@@ -495,23 +453,37 @@ What GUI toolkit do you want to use for this project?""",
                 f"A directory named '{context['app_name']}' already exists."
             )
 
+        # This is to have briefcase template file
+        # mentioning extra context on which template/branch
+        # the project was generated from.
+        context.update({"template": template, "branch": branch})
+
         try:
+            self.logger.info(f"Using app template: {template}, branch {branch}")
             # Unroll the new app template
-            self.cookiecutter(
-                str(cached_template),
-                no_input=True,
-                output_dir=os.fsdecode(self.base_path),
-                checkout="v0.3",
+            self.generate_template(
+                template=template,
+                branch=branch,
+                output_path=self.base_path,
                 extra_context=context,
             )
-        except subprocess.CalledProcessError as e:
-            # Computer is offline
-            # status code == 128 - certificate validation error.
-            raise NetworkFailure("clone template repository") from e
-        except cookiecutter_exceptions.RepositoryNotFound as e:
-            # Either the template path is invalid,
-            # or it isn't a cookiecutter template (i.e., no cookiecutter.json)
-            raise InvalidTemplateRepository(template) from e
+        except TemplateUnsupportedVersion:
+            # If we're *not* on a development branch, raise an error about
+            # the missing template branch.
+            if version.dev is None:
+                raise
+
+            # Development branches can use the main template.
+            self.logger.info(
+                f"Template branch {branch} not found; falling back to development template"
+            )
+            branch = "main"
+            self.generate_template(
+                template=template,
+                branch=branch,
+                output_path=self.base_path,
+                extra_context=context,
+            )
 
         self.logger.info(
             f"""
@@ -528,7 +500,8 @@ Application '{context['formal_name']}' has been generated. To run your applicati
         Raises MissingToolException if a required system tool is
         missing.
         """
-        self.git = self.integrations.git.verify_git_is_installed(self)
+        super().verify_tools()
+        git.verify_git_is_installed(tools=self.tools)
 
     def __call__(self, template: Optional[str] = None, **options):
         # Confirm all required tools are available

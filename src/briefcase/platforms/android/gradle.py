@@ -1,3 +1,4 @@
+import datetime
 import re
 import subprocess
 import time
@@ -28,6 +29,32 @@ def safe_formal_name(name):
     :returns: The safe version of the name.
     """
     return re.sub(r"\s+", " ", re.sub(r'[!/\\:<>"\?\*\|]', "", name)).strip()
+
+
+ANDROID_LOG_PREFIX_REGEX = re.compile(
+    r"\d{2}-\d{2} (?P<timestamp>\d{2}:\d{2}:\d{2}.\d{3})\s+\d+\s+\d+ [A-Z] (?P<component>.*?): (?P<content>.*)"
+)
+
+
+def android_log_clean_filter(line):
+    """Filter an ADB log log to extract the Python-generated message content.
+
+    Any system or stub messages are ignored; all logging prefixes are stripped.
+    Python code is identified as coming from the ``python.stdout``
+
+    :param line: The raw line from the system log
+    :returns: A tuple, containing (a) the log line, stripped of any system
+        logging context, and (b) a boolean indicating if the message should be
+        included for analysis purposes (i.e., it's Python content, not a system
+        message).
+    """
+    match = ANDROID_LOG_PREFIX_REGEX.match(line)
+    if match:
+        groups = match.groupdict()
+        include = groups["component"] in {"python.stdout", "python.stderr"}
+        return groups["content"], include
+
+    return line, False
 
 
 class GradleMixin:
@@ -86,20 +113,26 @@ class GradleMixin:
         )
 
     def gradlew_path(self, app):
-        gradlew = "gradlew.bat" if self.host_os == "Windows" else "gradlew"
+        gradlew = "gradlew.bat" if self.tools.host_os == "Windows" else "gradlew"
         return self.bundle_path(app) / gradlew
 
     def verify_tools(self):
         """Verify that the Android APK tools in `briefcase` will operate on
         this system, downloading tools as needed."""
         super().verify_tools()
-        self.android_sdk = AndroidSDK.verify(self)
+        AndroidSDK.verify(tools=self.tools)
         if not self.is_clone:
-            self.logger.add_log_file_extra(self.android_sdk.list_packages)
+            self.logger.add_log_file_extra(self.tools.android_sdk.list_packages)
 
 
 class GradleCreateCommand(GradleMixin, CreateCommand):
     description = "Create and populate an Android Gradle project."
+
+    def support_package_filename(self, support_revision):
+        """The query arguments to use in a support package query request."""
+        return (
+            f"Python-{self.python_version_tag}-Android-support.b{support_revision}.zip"
+        )
 
     def output_format_template_context(self, app: BaseConfig):
         """Additional template context required by the output format.
@@ -135,20 +168,45 @@ class GradleOpenCommand(GradleMixin, OpenCommand):
 class GradleBuildCommand(GradleMixin, BuildCommand):
     description = "Build an Android debug APK."
 
-    def build_app(self, app: BaseConfig, **kwargs):
+    def metadata_resource_path(self, app: BaseConfig):
+        # If the index file hasn't been loaded for this app, load it.
+        try:
+            path_index = self._path_index[app]
+        except KeyError:
+            path_index = self._load_path_index(app)
+        return self.bundle_path(app) / path_index["metadata_resource_path"]
+
+    def update_app_metadata(self, app: BaseConfig, test_mode: bool):
+        with self.input.wait_bar("Setting main module..."):
+            with self.metadata_resource_path(app).open("w", encoding="utf-8") as f:
+                # Set the name of the app's main module; this will depend
+                # on whether we're in test mode.
+                f.write(
+                    f"""\
+<resources>
+    <string name="main_module">{app.main_module(test_mode)}</string>
+</resources>
+"""
+                )
+
+    def build_app(self, app: BaseConfig, test_mode: bool, **kwargs):
         """Build an application.
 
         :param app: The application to build
+        :param test_mode: Should the app be updated in test mode? (default: False)
         """
+        self.logger.info("Updating app metadata...", prefix=app.app_name)
+        self.update_app_metadata(app=app, test_mode=test_mode)
+
         self.logger.info("Building Android APK...", prefix=app.app_name)
         with self.input.wait_bar("Building..."):
             try:
-                self.subprocess.run(
+                self.tools.subprocess.run(
                     # Windows needs the full path to `gradlew`; macOS & Linux can find it
                     # via `./gradlew`. For simplicity of implementation, we always provide
                     # the full path.
                     [self.gradlew_path(app), "assembleDebug", "--console", "plain"],
-                    env=self.android_sdk.env,
+                    env=self.tools.android_sdk.env,
                     # Set working directory so gradle can use the app bundle path as its
                     # project root, i.e., to avoid 'Task assembleDebug not found'.
                     cwd=self.bundle_path(app),
@@ -163,7 +221,7 @@ class GradleRunCommand(GradleMixin, RunCommand):
 
     def verify_tools(self):
         super().verify_tools()
-        self.android_sdk.verify_emulator()
+        self.tools.android_sdk.verify_emulator()
 
     def add_options(self, parser):
         super().add_options(parser)
@@ -175,17 +233,39 @@ class GradleRunCommand(GradleMixin, RunCommand):
             " or an AVD name ('@emulatorName') ",
             required=False,
         )
+        parser.add_argument(
+            "--Xemulator",
+            action="append",
+            dest="extra_emulator_args",
+            help="Additional arguments to use when starting the emulator",
+            required=False,
+        )
+        parser.add_argument(
+            "--shutdown-on-exit",
+            action="store_true",
+            help="Shutdown the emulator on exit.",
+            required=False,
+        )
 
-    def run_app(self, app: BaseConfig, device_or_avd=None, **kwargs):
+    def run_app(
+        self,
+        app: BaseConfig,
+        test_mode: bool,
+        device_or_avd=None,
+        extra_emulator_args=None,
+        shutdown_on_exit=False,
+        **kwargs,
+    ):
         """Start the application.
 
         :param app: The config object for the app
+        :param test_mode: Boolean; Is the app running in test mode?
         :param device_or_avd: The device to target. If ``None``, the user will
             be asked to re-run the command selecting a specific device.
+        :param extra_emulator_args: Any additional arguments to pass to the emulator.
+        :param shutdown_on_exit: Should the emulator be shut down on exit?
         """
-        device, name, avd = self.android_sdk.select_target_device(
-            device_or_avd=device_or_avd
-        )
+        device, name, avd = self.tools.android_sdk.select_target_device(device_or_avd)
 
         # If there's no device ID, that means the emulator isn't running.
         # If there's no AVD either, it means the user has chosen to create
@@ -193,51 +273,104 @@ class GradleRunCommand(GradleMixin, RunCommand):
         # then start it.
         if device is None:
             if avd is None:
-                avd = self.android_sdk.create_emulator()
+                avd = self.tools.android_sdk.create_emulator()
             else:
                 # Ensure the system image for the requested emulator is available.
                 # This step is only needed if the AVD already existed; you have to
                 # have an image available to create an AVD.
-                self.android_sdk.verify_avd(avd)
+                self.tools.android_sdk.verify_avd(avd)
 
-            self.logger.info(f"Starting emulator {avd}...", prefix=app.app_name)
-            device, name = self.android_sdk.start_emulator(avd)
+            if extra_emulator_args:
+                extra = f" (with {' '.join(extra_emulator_args)})"
+            else:
+                extra = ""
+            self.logger.info(
+                f"Starting emulator {avd}{extra}...",
+                prefix=app.app_name,
+            )
+            device, name = self.tools.android_sdk.start_emulator(
+                avd, extra_emulator_args
+            )
 
-        self.logger.info(
-            f"Starting app on {name} (device ID {device})", prefix=app.app_name
-        )
+        try:
+            if test_mode:
+                label = "test suite"
+            else:
+                label = "app"
 
-        # Create an ADB wrapper for the selected device
-        adb = self.android_sdk.adb(device=device)
+            self.logger.info(
+                f"Starting {label} on {name} (device ID {device})", prefix=app.app_name
+            )
 
-        # Compute Android package name. The Android template uses
-        # `package_name` and `module_name`, so we use those here as well.
-        package = f"{app.package_name}.{app.module_name}"
+            # Create an ADB wrapper for the selected device
+            adb = self.tools.android_sdk.adb(device=device)
 
-        # We force-stop the app to ensure the activity launches freshly.
-        self.logger.info("Installing app...", prefix=app.app_name)
-        with self.input.wait_bar("Stopping old versions of the app..."):
-            adb.force_stop_app(package)
+            # Compute Android package name. The Android template uses
+            # `package_name` and `module_name`, so we use those here as well.
+            package = f"{app.package_name}.{app.module_name}"
 
-        # Install the latest APK file onto the device.
-        with self.input.wait_bar("Installing new app version..."):
-            adb.install_apk(self.binary_path(app))
+            # We force-stop the app to ensure the activity launches freshly.
+            self.logger.info("Installing app...", prefix=app.app_name)
+            with self.input.wait_bar("Stopping old versions of the app..."):
+                adb.force_stop_app(package)
 
-        # To start the app, we launch `org.beeware.android.MainActivity`.
-        with self.input.wait_bar("Launching app..."):
-            adb.start_app(package, "org.beeware.android.MainActivity")
-            pid = None
-            while not pid:
-                pid = adb.pidof(package)
-                if not pid:
-                    time.sleep(0.5)
+            # Install the latest APK file onto the device.
+            with self.input.wait_bar("Installing new app version..."):
+                adb.install_apk(self.binary_path(app))
 
-        self.logger.info(
-            "Following device log output (type CTRL-C to stop log)...",
-            prefix=app.app_name,
-        )
-        self.logger.info("=" * 75)
-        adb.logcat(pid)
+            # To start the app, we launch `org.beeware.android.MainActivity`.
+            with self.input.wait_bar(f"Launching {label}..."):
+                # Any log after this point must be associated with the new instance
+                start_time = datetime.datetime.now()
+                adb.start_app(package, "org.beeware.android.MainActivity")
+                pid = None
+                attempts = 0
+                delay = 0.01
+
+                # Try to get the PID for 5 seconds.
+                fail_time = start_time + datetime.timedelta(seconds=5)
+                while not pid and datetime.datetime.now() < fail_time:
+                    # Try to get the PID; run in quiet mode because we may
+                    # need to do this a lot in the next 5 seconds.
+                    pid = adb.pidof(package, quiet=True)
+                    if not pid:
+                        time.sleep(delay)
+                    attempts += 1
+
+            if pid:
+                self.logger.info(
+                    "Following device log output (type CTRL-C to stop log)...",
+                    prefix=app.app_name,
+                )
+                # Start the app in a way that lets us stream the logs
+                log_popen = adb.logcat(pid=pid)
+
+                # Stream the app logs.
+                self._stream_app_logs(
+                    app,
+                    popen=log_popen,
+                    test_mode=test_mode,
+                    clean_filter=android_log_clean_filter,
+                    clean_output=False,
+                    # Check for the PID in quiet mode so logs aren't corrupted.
+                    stop_func=lambda: not adb.pid_exists(pid=pid, quiet=True),
+                    log_stream=True,
+                )
+            else:
+                self.logger.error("Unable to find PID for app", prefix=app.app_name)
+                self.logger.error("Logs for launch attempt follow...")
+
+                # Show the log from the start time of the app
+                self.logger.error("=" * 75)
+
+                # Pad by a few seconds because the android emulator's clock and the
+                # local system clock may not be perfectly aligned.
+                adb.logcat_tail(since=start_time - datetime.timedelta(seconds=10))
+                raise BriefcaseCommandError(f"Problem starting app {app.app_name!r}")
+        finally:
+            if shutdown_on_exit:
+                with self.tools.input.wait_bar("Stopping emulator..."):
+                    adb.kill()
 
 
 class GradlePackageCommand(GradleMixin, PackageCommand):
@@ -256,12 +389,12 @@ class GradlePackageCommand(GradleMixin, PackageCommand):
         )
         with self.input.wait_bar("Bundling..."):
             try:
-                self.subprocess.run(
+                self.tools.subprocess.run(
                     # Windows needs the full path to `gradlew`; macOS & Linux can find it
                     # via `./gradlew`. For simplicity of implementation, we always provide
                     # the full path.
                     [self.gradlew_path(app), "bundleRelease", "--console", "plain"],
-                    env=self.android_sdk.env,
+                    env=self.tools.android_sdk.env,
                     # Set working directory so gradle can use the app bundle path as its
                     # project root, i.e., to avoid 'Task bundleRelease not found'.
                     cwd=self.bundle_path(app),

@@ -2,13 +2,14 @@ import pytest
 
 from briefcase.commands import DevCommand
 from briefcase.commands.base import full_options
+from briefcase.console import Console, Log
 from briefcase.exceptions import BriefcaseCommandError
 
 
 class DummyDevCommand(DevCommand):
     """A dummy Dev command that doesn't actually do anything.
 
-    It only serves to track which actions would be performend.
+    It only serves to track which actions would be performed.
     """
 
     platform = "tester"
@@ -16,7 +17,9 @@ class DummyDevCommand(DevCommand):
     description = "Dummy dev command"
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, apps=[], **kwargs)
+        kwargs.setdefault("logger", Log())
+        kwargs.setdefault("console", Console())
+        super().__init__(*args, apps={}, **kwargs)
 
         self.actions = []
         self.env = dict(a=1, b=2, c=3)
@@ -25,10 +28,14 @@ class DummyDevCommand(DevCommand):
         super().verify_tools()
         self.actions.append(("verify",))
 
-    def install_dev_dependencies(self, app, **kwargs):
-        self.actions.append(("dev_dependencies", app.app_name, kwargs))
+    def verify_app_tools(self, app):
+        super().verify_app_tools(app=app)
+        self.actions.append(("verify-app-tools", app.app_name))
 
-    def get_environment(self, app):
+    def install_dev_requirements(self, app, **kwargs):
+        self.actions.append(("dev_requirements", app.app_name, kwargs))
+
+    def get_environment(self, app, test_mode):
         return self.env
 
     def run_dev_app(self, app, env, **kwargs):
@@ -58,8 +65,10 @@ def test_no_args_one_app(dev_command, first_app):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Run the first app devly
-        ("run_dev", "first", {}, dev_command.env),
+        ("run_dev", "first", {"test_mode": False}, dev_command.env),
     ]
 
 
@@ -102,8 +111,10 @@ def test_with_arg_one_app(dev_command, first_app):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # Run the first app devly
-        ("run_dev", "first", {}, dev_command.env),
+        ("run_dev", "first", {"test_mode": False}, dev_command.env),
     ]
 
 
@@ -125,8 +136,10 @@ def test_with_arg_two_apps(dev_command, first_app, second_app):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "second"),
         # Run the second app devly
-        ("run_dev", "second", {}, dev_command.env),
+        ("run_dev", "second", {"test_mode": False}, dev_command.env),
     ]
 
 
@@ -153,15 +166,15 @@ def test_bad_app_reference(dev_command, first_app, second_app):
     ]
 
 
-def test_update_dependencies(dev_command, first_app):
+def test_update_requirements(dev_command, first_app):
     """The dev command can request that the app is updated first."""
     # Add a single app
     dev_command.apps = {
         "first": first_app,
     }
 
-    # Configure no command line options
-    options = dev_command.parse_options(["-d"])
+    # Configure a requirements update
+    options = dev_command.parse_options(["-r"])
 
     # Run the run command
     dev_command(**options)
@@ -170,10 +183,12 @@ def test_update_dependencies(dev_command, first_app):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # An update was requested
-        ("dev_dependencies", "first", {}),
+        ("dev_requirements", "first", {}),
         # Then, it will be started
-        ("run_dev", "first", {}, dev_command.env),
+        ("run_dev", "first", {"test_mode": False}, dev_command.env),
     ]
 
 
@@ -194,23 +209,25 @@ def test_run_uninstalled(dev_command, first_app_uninstalled):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # The app will be installed
-        ("dev_dependencies", "first", {}),
+        ("dev_requirements", "first", {}),
         # Then, it will be started
-        ("run_dev", "first", {}, dev_command.env),
+        ("run_dev", "first", {"test_mode": False}, dev_command.env),
     ]
 
 
 def test_update_uninstalled(dev_command, first_app_uninstalled):
-    """A request to update dependencies is redundant if the app hasn't been
+    """A request to update requirements is redundant if the app hasn't been
     installed."""
     # Add a single app
     dev_command.apps = {
         "first": first_app_uninstalled,
     }
 
-    # Configure no command line options
-    options = dev_command.parse_options(["-d"])
+    # Configure a requirements update
+    options = dev_command.parse_options(["-r"])
 
     # Run the run command
     dev_command(**options)
@@ -219,21 +236,23 @@ def test_update_uninstalled(dev_command, first_app_uninstalled):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
         # An update was requested
-        ("dev_dependencies", "first", {}),
+        ("dev_requirements", "first", {}),
         # Then, it will be started
-        ("run_dev", "first", {}, dev_command.env),
+        ("run_dev", "first", {"test_mode": False}, dev_command.env),
     ]
 
 
 def test_no_run(dev_command, first_app_uninstalled):
-    """Install dependencies without running the app."""
+    """Install requirements without running the app."""
     # Add a single app
     dev_command.apps = {
         "first": first_app_uninstalled,
     }
 
-    # Configure no command line options
+    # Configure an update without run
     options = dev_command.parse_options(["--no-run"])
 
     # Run the run command
@@ -243,6 +262,58 @@ def test_no_run(dev_command, first_app_uninstalled):
     assert dev_command.actions == [
         # Tools are verified
         ("verify",),
-        # Only update dependencies without running the app
-        ("dev_dependencies", "first", {}),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Only update requirements without running the app
+        ("dev_requirements", "first", {}),
+    ]
+
+
+def test_run_test(dev_command, first_app):
+    """The test suite can be run in development mode."""
+    # Add a single app
+    dev_command.apps = {
+        "first": first_app,
+    }
+
+    # Configure the test option
+    options = dev_command.parse_options(["--test"])
+
+    # Run the run command
+    dev_command(**options)
+
+    # The right sequence of things will be done
+    assert dev_command.actions == [
+        # Tools are verified
+        ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Then, it will be started
+        ("run_dev", "first", {"test_mode": True}, dev_command.env),
+    ]
+
+
+def test_run_test_uninstalled(dev_command, first_app_uninstalled):
+    """The test suite can be run in development mode."""
+    # Add a single app
+    dev_command.apps = {
+        "first": first_app_uninstalled,
+    }
+
+    # Configure the test option
+    options = dev_command.parse_options(["--test"])
+
+    # Run the run command
+    dev_command(**options)
+
+    # The right sequence of things will be done
+    assert dev_command.actions == [
+        # Tools are verified
+        ("verify",),
+        # App tools are verified for app
+        ("verify-app-tools", "first"),
+        # Development requirements will be installed
+        ("dev_requirements", "first", {}),
+        # Then, it will be started
+        ("run_dev", "first", {"test_mode": True}, dev_command.env),
     ]

@@ -1,10 +1,11 @@
 import time
+from io import StringIO
 from threading import Event
 from unittest import mock
 
 import pytest
 
-from briefcase.console import Log
+from briefcase.integrations import subprocess
 
 
 @pytest.fixture()
@@ -14,9 +15,9 @@ def mock_sub(mock_sub):
     return mock_sub
 
 
-def test_output(mock_sub, popen_process, capsys):
+def test_output(mock_sub, streaming_process, capsys):
     """Process output is printed."""
-    mock_sub.stream_output("testing", popen_process)
+    mock_sub.stream_output("testing", streaming_process)
 
     # fmt: off
     assert capsys.readouterr().out == (
@@ -25,14 +26,14 @@ def test_output(mock_sub, popen_process, capsys):
         "output line 3\n"
     )
     # fmt: on
-    mock_sub.cleanup.assert_called_once_with("testing", popen_process)
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
 
 
-def test_output_debug(mock_sub, popen_process, capsys):
+def test_output_debug(mock_sub, streaming_process, capsys):
     """Process output is printed; no debug output for only stream_output."""
-    mock_sub.command.logger = Log(verbosity=2)
+    mock_sub.tools.logger.verbosity = 2
 
-    mock_sub.stream_output("testing", popen_process)
+    mock_sub.stream_output("testing", streaming_process)
 
     # fmt: off
     expected_output = (
@@ -43,17 +44,18 @@ def test_output_debug(mock_sub, popen_process, capsys):
     # fmt: on
     assert capsys.readouterr().out == expected_output
 
-    mock_sub.cleanup.assert_called_once_with("testing", popen_process)
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
 
 
-def test_keyboard_interrupt(mock_sub, popen_process, capsys):
+def test_keyboard_interrupt(mock_sub, streaming_process, capsys):
     """KeyboardInterrupt is suppressed if user sends CTRL+C and all output is
     printed."""
 
     send_ctrl_c = mock.MagicMock()
     send_ctrl_c.side_effect = [False, KeyboardInterrupt]
 
-    mock_sub.stream_output("testing", popen_process, stop_func=send_ctrl_c)
+    with pytest.raises(KeyboardInterrupt):
+        mock_sub.stream_output("testing", streaming_process, stop_func=send_ctrl_c)
 
     assert (
         capsys.readouterr().out == "output line 1\n"
@@ -61,14 +63,14 @@ def test_keyboard_interrupt(mock_sub, popen_process, capsys):
         "output line 3\n"
         "Stopping...\n"
     )
-    mock_sub.cleanup.assert_called_once_with("testing", popen_process)
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
 
 
-def test_process_exit_with_queued_output(mock_sub, popen_process, capsys):
+def test_process_exit_with_queued_output(mock_sub, streaming_process, capsys):
     """All output is printed despite the process exiting early."""
-    popen_process.poll.side_effect = [None, -3, -3, -3]
+    streaming_process.poll.side_effect = [None, -3, -3, -3]
 
-    mock_sub.stream_output("testing", popen_process)
+    mock_sub.stream_output("testing", streaming_process)
     # fmt: off
     assert capsys.readouterr().out == (
         "output line 1\n"
@@ -76,14 +78,14 @@ def test_process_exit_with_queued_output(mock_sub, popen_process, capsys):
         "output line 3\n"
     )
     # fmt: on
-    mock_sub.cleanup.assert_called_once_with("testing", popen_process)
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
 
 
 @pytest.mark.parametrize("stop_func_ret_val", (True, False))
-def test_stop_func(mock_sub, popen_process, stop_func_ret_val, capsys):
+def test_stop_func(mock_sub, streaming_process, stop_func_ret_val, capsys):
     """All output is printed whether stop_func aborts streaming or not."""
     mock_sub.stream_output(
-        "testing", popen_process, stop_func=lambda: stop_func_ret_val
+        "testing", streaming_process, stop_func=lambda: stop_func_ret_val
     )
     # fmt: off
     assert capsys.readouterr().out == (
@@ -92,10 +94,10 @@ def test_stop_func(mock_sub, popen_process, stop_func_ret_val, capsys):
         "output line 3\n"
     )
     # fmt: on
-    mock_sub.cleanup.assert_called_once_with("testing", popen_process)
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
 
 
-def test_stuck_streamer(mock_sub, popen_process, monkeypatch, capsys):
+def test_stuck_streamer(mock_sub, streaming_process, monkeypatch, capsys):
     """Following a KeyboardInterrupt, output streaming returns even if the
     output streamer becomes stuck."""
 
@@ -124,7 +126,8 @@ def test_stuck_streamer(mock_sub, popen_process, monkeypatch, capsys):
 
     send_ctrl_c = mock.MagicMock()
     send_ctrl_c.side_effect = [False, KeyboardInterrupt]
-    mock_sub.stream_output("testing", popen_process, stop_func=send_ctrl_c)
+    with pytest.raises(KeyboardInterrupt):
+        mock_sub.stream_output("testing", streaming_process, stop_func=send_ctrl_c)
 
     # fmt: off
     assert capsys.readouterr().out == (
@@ -134,3 +137,176 @@ def test_stuck_streamer(mock_sub, popen_process, monkeypatch, capsys):
     # fmt: on
 
     monkeypatched_streamer_should_exit.set()
+
+
+def test_stdout_closes_unexpectedly(mock_sub, streaming_process, monkeypatch, capsys):
+    """Streamer silently exits from ValueError because stdout was closed."""
+
+    def monkeypatch_ensure_str(value):
+        """Close stdout when ensure_str() runs on output from readline()."""
+        streaming_process.stdout.close()
+        return value
+
+    streaming_process.stdout = StringIO(initial_value="output line 1\noutput line 2")
+    monkeypatch.setattr(subprocess, "ensure_str", monkeypatch_ensure_str)
+
+    mock_sub.stream_output("testing", streaming_process)
+
+    assert capsys.readouterr().out == "output line 1\n"
+
+
+def test_filter_func(mock_sub, streaming_process, capsys):
+    """A filter can be added to modify an output stream."""
+    # Define a filter function that converts "output" into "filtered"
+    def filter_func(line):
+        yield line.replace("output", "filtered")
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed
+    assert capsys.readouterr().out == (
+        "filtered line 1\n"
+        "\n"
+        "filtered line 3\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_reject(mock_sub, streaming_process, capsys):
+    """A filter that rejects lines can be added to modify an output stream."""
+    # Define a filter function that ignores blank lines
+    def filter_func(line):
+        if len(line) == 0:
+            return
+        yield line
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed
+    assert capsys.readouterr().out == (
+        "output line 1\n"
+        "output line 3\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_line_ends(mock_sub, streaming_process, capsys):
+    """Filter functions are not provided the newline."""
+    # Define a filter function that redacts lines that end with 1
+    # The newline is *not* included.
+    def filter_func(line):
+        if line.endswith("line 1"):
+            yield line.replace("line 1", "**REDACTED**")
+        else:
+            yield line
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed; newline exists in output
+    assert capsys.readouterr().out == (
+        "output **REDACTED**\n"
+        "\n"
+        "output line 3\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_line_multiple_output(mock_sub, streaming_process, capsys):
+    """Filter functions can generate multiple lines from a single input."""
+    # Define a filter function that adds an extra line of content when the
+    # lines that end with 1
+    def filter_func(line):
+        yield line
+        if line.endswith("line 1"):
+            yield "Extra content!"
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed; newline exists in output
+    assert capsys.readouterr().out == (
+        "output line 1\n"
+        "Extra content!\n"
+        "\n"
+        "output line 3\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_stop_iteration(mock_sub, streaming_process, capsys):
+    """A filter can indicate that logging should stop."""
+    # Define a filter function that converts "output" into "filtered",
+    # and terminates streaming when a blank line is seen.
+    def filter_func(line):
+        if line == "":
+            raise subprocess.StopStreaming()
+        yield line.replace("output", "filtered")
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed, but is truncated when the empty line was received.
+    assert capsys.readouterr().out == (
+        "filtered line 1\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_output_and_stop_iteration(mock_sub, streaming_process, capsys):
+    """A filter can indicate that logging should stop, and also output
+    content."""
+    # Define a filter function that converts "output" into "filtered",
+    # and terminates streaming when a blank line is seen; but outputs
+    # one more line before terminating.
+    def filter_func(line):
+        if line == "":
+            yield "This should be the last line"
+            raise subprocess.StopStreaming()
+        yield line.replace("output", "filtered")
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Output has been transformed, but is truncated when the empty line was received.
+    assert capsys.readouterr().out == (
+        "filtered line 1\n"
+        "This should be the last line\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)
+
+
+def test_filter_func_line_unexpected_error(mock_sub, streaming_process, capsys):
+    """If a filter function fails, the error is caught and logged."""
+    # Define a filter function that redacts lines that end with 1
+    # The newline is *not* included.
+    def filter_func(line):
+        if not line:
+            raise RuntimeError("Like something totally went wrong")
+        yield line
+
+    mock_sub.stream_output("testing", streaming_process, filter_func=filter_func)
+
+    # fmt: off
+    # Exception
+    assert capsys.readouterr().out == (
+        "output line 1\n"
+        "Error while streaming output: RuntimeError: Like something totally went wrong\n"
+    )
+    # fmt: on
+
+    mock_sub.cleanup.assert_called_once_with("testing", streaming_process)

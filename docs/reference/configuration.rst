@@ -163,7 +163,7 @@ not be included. For example, if you specify ``src/myapp`` as a source, the
 contents of the `myapp` folder will be copied into the application bundle; the
 src directory will not be reproduced.
 
-Unlike most other keys in a configuration file, ``sources`` is *cumlative*
+Unlike most other keys in a configuration file, ``sources`` is a *cumulative*
 setting. If an application defines sources at the global level, application
 level, *and* platform level, the final set of sources will be the
 *concatenation* of sources from all levels, starting from least to most
@@ -268,7 +268,7 @@ be appended when the application is built.
 
 A list of packages that must be packaged with this application.
 
-Unlike most other keys in a configuration file, ``requires`` is *cumlative*
+Unlike most other keys in a configuration file, ``requires`` is a *cumulative*
 setting. If an application defines requirements at the global level,
 application level, *and* platform level, the final set of requirements will be
 the *concatenation* of requirements from all levels, starting from least to
@@ -332,15 +332,12 @@ package for the platform.
 ~~~~~~~~~~~~~~~~~~~~
 
 The specific revision of a support package that should be used. By default,
-Briefcase will always use the most recently released support package; if you
-specify a support revision, the support package will be pinned to that version
-for your app.
+Briefcase will use the support package revision nominated by the application
+template. If you specify a support revision, that will override the revision
+nominated by the application template.
 
-If the support package is a URL, a query argument of
-``revision=<support_revision>`` will be added to the support package URL when
-it is downloaded.
-
-If the support package is a file path, this argument is ignored.
+If you specify an explicit support package (either as a URL or a file path),
+this argument is ignored.
 
 ``supported``
 ~~~~~~~~~~~~~
@@ -368,8 +365,46 @@ the output format and Python version.
 
 The branch of the project template to use when generating the app. If the
 template is a local file, this attribute will be ignored. If not specified,
-Briefcase will use a branch matching the Python version in use (i.e., the `3.8`
-branch will be used when Python 3.8 is used to generate the app).
+Briefcase will use a branch matching the version of Briefcase that is being used
+(i.e., if you're using Briefcase 0.3.9, Briefcase will use the `v0.3.9` template
+branch when generating the app). If you're using a development version of
+Briefcase, Briefcase will use the `main` branch of the template.
+
+``test_requires``
+~~~~~~~~~~~~~~~~~
+
+A list of packages that are required for the test suite to run.
+
+Unlike most other keys in a configuration file, ``test_requires`` is a
+*cumulative* setting. If an application defines requirements at the global
+level, application level, *and* platform level, the final set of requirements
+will be the *concatenation* of requirements from all levels, starting from least
+to most specific.
+
+``test_sources``
+~~~~~~~~~~~~~~~~
+
+A list of paths, relative to the pyproject.toml file, where test code for the
+application can be found. The contents of any named files or folders will be
+copied into the application bundle. Parent directories in any named path will
+not be included. For example, if you specify ``src/myapp`` as a source, the
+contents of the `myapp` folder will be copied into the application bundle; the
+src directory will not be reproduced.
+
+As with ``sources``, ``test_sources`` is a *cumulative* setting. If an
+application defines sources at the global level, application level, *and*
+platform level, the final set of sources will be the *concatenation* of test
+sources from all levels, starting from least to most specific.
+
+``test_success_regex`` / ``test_failure_regex``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Regular expressions that match the success and failure output of the test suite.
+The ``re.MULTILINE`` flag will be used.
+
+Briefcase defaults to regular expressions that are able to match the output of
+``unittest`` or ``pytest``; if you use a different test framework, you will need
+to customize these settings.
 
 ``url``
 ~~~~~~~

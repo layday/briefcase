@@ -11,6 +11,7 @@ process_list_one_proc = [
         info=dict(cmdline=["/bin/cmd.sh", "--input", "data"], create_time=20, pid=100)
     )
 ]
+
 process_list_two_procs_diff_cmd = [
     Process(
         info=dict(
@@ -23,6 +24,7 @@ process_list_two_procs_diff_cmd = [
         )
     ),
 ]
+
 process_list_two_procs_same_cmd = [
     Process(
         info=dict(cmdline=["/bin/cmd.sh", "--input", "data"], create_time=20, pid=100)
@@ -67,7 +69,12 @@ process_list_two_procs_same_cmd = [
     ],
 )
 def test_get_process_id_by_command_w_command_line(
-    process_list, command_list, expected_pid, expected_stdout, monkeypatch, capsys
+    process_list,
+    command_list,
+    expected_pid,
+    expected_stdout,
+    monkeypatch,
+    capsys,
 ):
     """Finds correct process for command line or returns None."""
     monkeypatch.setattr("psutil.process_iter", lambda attrs: process_list)
@@ -97,10 +104,29 @@ def test_get_process_id_by_command_w_command_line(
     ],
 )
 def test_get_process_id_by_command_w_command(
-    process_list, command, expected_pid, expected_stdout, monkeypatch, capsys
+    process_list,
+    command,
+    expected_pid,
+    expected_stdout,
+    monkeypatch,
+    capsys,
 ):
     """Finds correct process for command or returns None."""
     monkeypatch.setattr("psutil.process_iter", lambda attrs: process_list)
     found_pid = get_process_id_by_command(command=command, logger=Log())
     assert found_pid == expected_pid
     assert capsys.readouterr().out == expected_stdout
+
+
+def test_get_process_id_no_logging(monkeypatch, capsys):
+    """If no logger is provided, warnings about ambiguous matches aren't
+    printed."""
+    monkeypatch.setattr(
+        "psutil.process_iter",
+        lambda attrs: process_list_two_procs_same_cmd,
+    )
+    found_pid = get_process_id_by_command(
+        command_list=["/bin/cmd.sh", "--input", "data"]
+    )
+    assert found_pid == 100
+    assert capsys.readouterr().out == ""
