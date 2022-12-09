@@ -286,6 +286,7 @@ or
             )
         except subprocess.CalledProcessError as e:
             errors = e.stderr
+            self.logger.info(errors)
             if "code object is not signed at all" in errors:
                 self.logger.info("... file requires a deep sign; retrying")
                 try:
