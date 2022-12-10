@@ -35,6 +35,20 @@ class macOSAppMixin(macOSMixin):
 class macOSAppCreateCommand(macOSAppMixin, CreateCommand):
     description = "Create and populate a macOS app."
 
+    def _extra_pip_args(self, app: BaseConfig):
+        from packaging.tags import platform_tags
+
+        return [
+            "--only-binary",
+            ":all:",
+            # Prioritise universal2 wheels; pip will favour platform-specific wheels by default
+            *(
+                i
+                for p in sorted(platform_tags(), key=lambda t: 0 if "universal2" in t else 1)
+                for i in ('--platform', p)
+            )
+        ]
+
 
 class macOSAppUpdateCommand(macOSAppCreateCommand, UpdateCommand):
     description = "Update an existing macOS app."
