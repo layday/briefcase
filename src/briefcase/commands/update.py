@@ -8,6 +8,7 @@ from .create import CreateCommand
 
 class UpdateCommand(CreateCommand):
     command = "update"
+    description = "Update the source, dependencies, and resources for an app."
 
     def add_options(self, parser):
         self._add_update_options(
@@ -65,7 +66,8 @@ class UpdateCommand(CreateCommand):
         test_mode: bool = False,
         **options,
     ):
-        # Confirm all required tools are available
+        # Confirm host compatibility and all required tools are available
+        self.verify_host()
         self.verify_tools()
 
         if app:

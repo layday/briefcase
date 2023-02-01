@@ -3,13 +3,18 @@ import importlib
 import inspect
 import os
 import platform
+import shutil
 import subprocess
+import textwrap
 from abc import ABC, abstractmethod
+from argparse import RawDescriptionHelpFormatter
 from pathlib import Path
 
 from cookiecutter import exceptions as cookiecutter_exceptions
 from cookiecutter.repository import is_repo_url
 from platformdirs import PlatformDirs
+
+from briefcase.platforms import get_output_formats, get_platforms
 
 try:
     import tomllib
@@ -22,39 +27,14 @@ from briefcase.console import Console, Log
 from briefcase.exceptions import (
     BriefcaseCommandError,
     BriefcaseConfigError,
-    InfoHelpText,
+    InvalidTemplateRepository,
     NetworkFailure,
+    TemplateUnsupportedVersion,
+    UnsupportedHostError,
 )
 from briefcase.integrations.base import ToolCache
 from briefcase.integrations.download import Download
 from briefcase.integrations.subprocess import Subprocess
-
-
-class InvalidTemplateRepository(BriefcaseCommandError):
-    def __init__(self, template):
-        self.template = template
-        super().__init__(
-            f"Unable to clone application template; is the template path {template!r} correct?"
-        )
-
-
-class TemplateUnsupportedVersion(BriefcaseCommandError):
-    def __init__(self, briefcase_version):
-        self.briefcase_version = briefcase_version
-        super().__init__(
-            f"Could not find a template branch for Briefcase {briefcase_version}."
-        )
-
-
-class UnsupportedPlatform(BriefcaseCommandError):
-    def __init__(self, platform):
-        self.platform = platform
-        super().__init__(
-            f"""\
-App cannot be deployed on {platform}. This is probably because one or more
-requirements (e.g., the GUI library) doesn't support {platform}.
-"""
-        )
 
 
 def create_config(klass, config, msg):
@@ -74,8 +54,7 @@ def create_config(klass, config, msg):
 
 
 def cookiecutter_cache_path(template):
-    """Determine the cookiecutter template cache directory given a template
-    URL.
+    """Determine the cookiecutter template cache directory given a template URL.
 
     This will return a valid path, regardless of whether `template`
 
@@ -110,6 +89,8 @@ def full_options(state, options):
 
 class BaseCommand(ABC):
     cmd_line = "briefcase {command} {platform} {output_format}"
+    supported_host_os = {"Darwin", "Linux", "Windows"}
+    supported_host_os_reason = f"This command is not supported on {platform.system()}."
     GLOBAL_CONFIG_CLASS = GlobalConfig
     APP_CONFIG_CLASS = AppConfig
 
@@ -163,94 +144,13 @@ class BaseCommand(ABC):
     def input(self):
         return self.tools.input
 
-    def check_obsolete_data_dir(self):
-        """Inform user if obsolete data directory exists.
-
-        TODO: Remove this check after 1 JAN 2023 since most users will have transitioned by then
-
-        Previous versions used the ~/.briefcase directory to store
-        downloads, tools, etc. This check lets users know the old
-        directory still exists and their options to migrate or clean up.
-        """
-        dot_briefcase_path = self.tools.home_path / ".briefcase"
-
-        # If there's no .briefcase path, no need to check for migration.
-        if not dot_briefcase_path.exists():
-            return
-
-        # If the data path is user-provided, don't check for migration.
-        if "BRIEFCASE_HOME" in os.environ:
-            return
-
-        if self.data_path.exists():
-            self.logger.warning(
-                f"""\
-Briefcase is no longer using the data directory:
-
-    {dot_briefcase_path}
-
-This directory can be safely deleted.
-"""
-            )
-        else:
-            self.logger.warning(
-                f"""\
-*************************************************************************
-** NOTICE: Briefcase is changing its data directory                   **
-*************************************************************************
-
-    Briefcase is moving its data directory from:
-
-        {dot_briefcase_path}
-
-    to:
-
-        {self.data_path}
-
-    If you continue, Briefcase will re-download the tools and data it
-    uses to build and package applications.
-
-    To avoid potentially large downloads and long installations, you
-    can manually move the old data directory to the new location.
-
-    If you continue and allow Briefcase to re-download its tools, the
-    old data directory can be safely deleted.
-
-*************************************************************************
-"""
-            )
-            self.input.prompt()
-            if not self.input.boolean_input(
-                "Do you want to re-download the Briefcase support tools",
-                # Default to continuing for non-interactive runs
-                default=not self.input.enabled,
-            ):
-                raise InfoHelpText(
-                    f"""\
-Move the Briefcase data directory from:
-
-    {dot_briefcase_path}
-
-to:
-
-    {self.data_path}
-
-or delete the old data directory, and re-run Briefcase.
-
-"""
-                )
-
-            # Create data directory to prevent full notice showing again.
-            self.data_path.mkdir(parents=True, exist_ok=True)
-
     def validate_data_path(self, data_path):
         """Validate provided data path or determine OS-specific path.
 
-        If a data path is provided during construction, use it. This
-        usually indicates we're under test conditions. If there's no
-        data path provided, look for a BRIEFCASE_HOME environment
-        variable. If that isn't defined, use a platform-specific default
-        data path.
+        If a data path is provided during construction, use it. This usually indicates
+        we're under test conditions. If there's no data path provided, look for a
+        BRIEFCASE_HOME environment variable. If that isn't defined, use a platform-
+        specific default data path.
         """
         if data_path is None:
             try:
@@ -273,7 +173,9 @@ or delete the old data directory, and re-run Briefcase.
                     appauthor="BeeWare",
                 ).user_cache_path
 
-        if " " in os.fsdecode(data_path):
+        data_path = os.fsdecode(data_path)
+
+        if " " in data_path:
             raise BriefcaseCommandError(
                 f"""
 The location Briefcase will use to store tools and support files:
@@ -288,6 +190,37 @@ a custom location for Briefcase's tools.
 
 """
             )
+
+        if not os.path.exists(data_path):
+            try:
+                # The Windows Store version of Python can redirect filesystem
+                # interactions within %LOCALAPPDATA% to a sandboxed location.
+                # To bypass this, the Briefcase cache directory creation is
+                # performed via ``cmd.exe`` in a different process. Once this
+                # directory exists in the "real" %LOCALAPPDATA%, Windows will
+                # allow normal interactions without attempting to sandbox them.
+                if platform.system() == "Windows":
+                    subprocess.run(
+                        ["mkdir", data_path],
+                        shell=True,
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                else:
+                    os.makedirs(data_path, exist_ok=True)
+            except (subprocess.CalledProcessError, OSError):
+                raise BriefcaseCommandError(
+                    f"""
+Failed to create the Briefcase directory to store tools and support files:
+
+    {data_path}
+
+You can set the environment variable BRIEFCASE_HOME to specify
+a custom location for Briefcase's tools.
+
+"""
+                )
 
         return Path(data_path)
 
@@ -357,8 +290,7 @@ a custom location for Briefcase's tools.
 
     @abstractmethod
     def binary_path(self, app):
-        """The path to the executable artefact for the app in the output
-        format.
+        """The path to the executable artefact for the app in the output format.
 
         This may be a binary file produced by compilation; however, if
         the output format doesn't require compilation, it may be the same
@@ -372,8 +304,8 @@ a custom location for Briefcase's tools.
 
     @abstractmethod
     def distribution_path(self, app, packaging_format):
-        """The path to the distributable artefact for the app in the given
-        packaging format.
+        """The path to the distributable artefact for the app in the given packaging
+        format.
 
         This is the single file that should be uploaded for distribution.
         This may be the binary (if the binary is a self-contained executable);
@@ -386,8 +318,7 @@ a custom location for Briefcase's tools.
         ...
 
     def _load_path_index(self, app: BaseConfig):
-        """Load the path index from the index file provided by the app
-        template.
+        """Load the path index from the index file provided by the app template.
 
         :param app: The config object for the app
         :return: The contents of the application path index.
@@ -423,8 +354,8 @@ a custom location for Briefcase's tools.
         return path_index["support_revision"]
 
     def cleanup_paths(self, app: BaseConfig):
-        """Obtain the paths generated by the app template that should be
-        cleaned up prior to release.
+        """Obtain the paths generated by the app template that should be cleaned up
+        prior to release.
 
         :param app: The config object for the app
         :return: The list of path globs inside the app template that should
@@ -438,8 +369,7 @@ a custom location for Briefcase's tools.
         return path_index["cleanup_paths"]
 
     def app_requirements_path(self, app: BaseConfig):
-        """Obtain the path into which a requirements.txt file should be
-        written.
+        """Obtain the path into which a requirements.txt file should be written.
 
         :param app: The config object for the app
         :return: The full path where the requirements.txt file should be written
@@ -506,18 +436,22 @@ a custom location for Briefcase's tools.
     def python_version_tag(self):
         """The major.minor of the Python version in use, as a string.
 
-        This is used as a repository label/tag to identify the
-        appropriate templates, etc. to use.
+        This is used as a repository label/tag to identify the appropriate templates,
+        etc. to use.
         """
         return (
             f"{self.tools.sys.version_info.major}.{self.tools.sys.version_info.minor}"
         )
 
-    def verify_tools(self):
-        """Verify that the tools needed to run this command exist.
+    def verify_host(self):
+        """Verify the host OS is supported by the Command."""
+        if self.tools.host_os not in self.supported_host_os:
+            raise UnsupportedHostError(self.supported_host_os_reason)
 
-        Raises MissingToolException if a required system tool is
-        missing.
+    def verify_tools(self):
+        """Verify that the tools needed to run this Command exist.
+
+        Raises MissingToolException if a required system tool is missing.
         """
         pass
 
@@ -526,13 +460,44 @@ a custom location for Briefcase's tools.
         pass
 
     def parse_options(self, extra):
+        """Parse the command line arguments for the Command.
+
+        After the initial ArgumentParser runs to choose the Command for the
+        selected platform and format, a new ArgumentParser is created here to
+        parse the remaining command line arguments specific to the Command.
+        Additionally, the default options for disabling input, log verbosity,
+        and log saving are parsed out and saved to the Command.
+
+        :param extra: the remaining command line arguments after the initial
+            ArgumentParser runs over the command line.
+        :return: dictionary of parsed arguments for Command
+        """
+        default_format = getattr(
+            get_platforms().get(self.platform), "DEFAULT_OUTPUT_FORMAT", None
+        )
+        # only show supported formats for Commands that support formats
+        if default_format is not None and self.command not in {"new", "dev", "upgrade"}:
+            formats = list(get_output_formats(self.platform).keys())
+            formats[formats.index(default_format)] = f"{default_format} (default)"
+            supported_formats_helptext = (
+                "\nSupported formats:\n"
+                f"  {', '.join(sorted(formats, key=str.lower))}"
+            )
+        else:
+            supported_formats_helptext = ""
+
+        width = max(min(shutil.get_terminal_size().columns, 80) - 2, 20)
         parser = argparse.ArgumentParser(
             prog=self.cmd_line.format(
                 command=self.command,
                 platform=self.platform,
                 output_format=self.output_format,
             ),
-            description=self.description,
+            description=(
+                f"{textwrap.fill(self.description, width=width)}\n"
+                f"{supported_formats_helptext}"
+            ),
+            formatter_class=lambda prog: RawDescriptionHelpFormatter(prog, width=width),
         )
 
         self.add_default_options(parser)
@@ -645,8 +610,7 @@ a custom location for Briefcase's tools.
         )
 
     def add_options(self, parser):
-        """Add any options that this command needs to parse from the command
-        line.
+        """Add any options that this command needs to parse from the command line.
 
         :param parser: a stub argparse parser for the command.
         """
@@ -760,8 +724,8 @@ Did you run Briefcase in a project directory that contains {filename.name!r}?"""
         return cached_template
 
     def generate_template(self, template, branch, output_path, extra_context):
-        """Ensure the named template is up-to-date for the given branch, and
-        roll out that template.
+        """Ensure the named template is up-to-date for the given branch, and roll out
+        that template.
 
         :param template: The template URL or path to generate
         :param branch: The branch of the template to use

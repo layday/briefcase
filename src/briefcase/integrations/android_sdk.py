@@ -52,8 +52,8 @@ class AndroidSDK(Tool):
 
     @property
     def cmdline_tools_url(self):
-        """The Android SDK Command-Line Tools URL appropriate to the current
-        operating system."""
+        """The Android SDK Command-Line Tools URL appropriate to the current operating
+        system."""
         platform_name = self.tools.host_os.lower()
         if self.tools.host_os.lower() == "darwin":
             platform_name = "mac"
@@ -239,8 +239,7 @@ class AndroidSDK(Tool):
     def exists(self):
         """Confirm that the SDK actually exists.
 
-        Look for the sdkmanager; and, if necessary, confirm that it is
-        executable.
+        Look for the sdkmanager; and, if necessary, confirm that it is executable.
         """
         return self.sdkmanager_path.exists() and (
             self.tools.host_os == "Windows"
@@ -345,7 +344,6 @@ its output for errors.
             self.tools.subprocess.check_output(
                 [os.fsdecode(self.sdkmanager_path), "--list_installed"],
                 env=self.env,
-                stderr=subprocess.STDOUT,
             )
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError(
@@ -405,8 +403,7 @@ connection.
             )
 
     def verify_emulator(self):
-        """Verify that Android emulator has been installed, and is in a
-        runnable state.
+        """Verify that Android emulator has been installed, and is in a runnable state.
 
         Raises an error if the emulator can't be installed.
         """
@@ -622,8 +619,7 @@ connection.
             # Capture `stderr` so that if the process exits with failure, the
             # stderr data is in `e.output`.
             output = self.tools.subprocess.check_output(
-                [os.fsdecode(self.emulator_path), "-list-avds"],
-                stderr=subprocess.STDOUT,
+                [os.fsdecode(self.emulator_path), "-list-avds"]
             ).strip()
 
             # AVD names are returned one per line.
@@ -639,8 +635,7 @@ connection.
             # Capture `stderr` so that if the process exits with failure, the
             # stderr data is in `e.output`.
             output = self.tools.subprocess.check_output(
-                [os.fsdecode(self.adb_path), "devices", "-l"],
-                stderr=subprocess.STDOUT,
+                [os.fsdecode(self.adb_path), "devices", "-l"]
             ).strip()
 
             # Process the output of `adb devices -l`.
@@ -1000,7 +995,6 @@ In future, you can specify this device by running:
                         device_type,
                     ],
                     env=self.env,
-                    stderr=subprocess.STDOUT,
                 )
             except subprocess.CalledProcessError as e:
                 raise BriefcaseCommandError("Unable to create Android emulator") from e
@@ -1224,9 +1218,8 @@ class ADB:
             ) from e
 
     def run(self, *arguments, quiet=False):
-        """Run a command on a device using Android debug bridge, `adb`. The
-        device name is mandatory to ensure clarity in the case of multiple
-        attached devices.
+        """Run a command on a device using Android debug bridge, `adb`. The device name
+        is mandatory to ensure clarity in the case of multiple attached devices.
 
         :param arguments: List of strings to pass to `adb` as arguments.
         :param quiet: Should the invocation of this command be silent, and
@@ -1253,7 +1246,6 @@ class ADB:
                     (os.fsdecode(arg) if isinstance(arg, Path) else arg)
                     for arg in arguments
                 ],
-                stderr=subprocess.STDOUT,
                 quiet=quiet,
             )
         except subprocess.CalledProcessError as e:
@@ -1361,8 +1353,8 @@ Activity class not found while starting app.
         )
 
     def logcat_tail(self, since=None):
-        """Show the tail of the logs for Python-like apps, starting from a
-        given timestamp.
+        """Show the tail of the logs for Python-like apps, starting from a given
+        timestamp.
 
         :param since: The start time from which logs should be displayed
         """

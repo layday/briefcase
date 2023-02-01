@@ -63,12 +63,10 @@ def test_short_circuit(mock_tools):
 
 
 def test_succeeds_immediately_in_happy_path(mock_tools, tmp_path):
-    """If verify is invoked on a path containing an Android SDK, it does
-    nothing."""
-    # If `sdkmanager` exists and has the right permissions, and
-    # `android-sdk-license` exists, verify() should
-    # succeed, create no subprocesses, make no requests, and return a
-    # SDK wrapper.
+    """If verify is invoked on a path containing an Android SDK, it does nothing."""
+    # If `sdkmanager` exists and has the right permissions, and `android-sdk-license`
+    # exists, verify() should succeed, create no subprocesses, make no requests, and
+    # return an SDK wrapper.
 
     # On Windows, this requires `sdkmanager.bat`; on non-Windows, it requires
     # `sdkmanager`.
@@ -93,45 +91,6 @@ def test_succeeds_immediately_in_happy_path(mock_tools, tmp_path):
     # No calls to download, run or unpack anything.
     mock_tools.download.file.assert_not_called()
     mock_tools.subprocess.run.assert_not_called()
-    mock_tools.shutil.unpack_archive.assert_not_called()
-
-    # The returned SDK has the expected root path.
-    assert sdk.root_path == android_sdk_root_path
-
-
-def test_succeeds_immediately_in_happy_path_with_debug(mock_tools, tmp_path):
-    """If debug is enabled, a verify call will display the installed
-    packages."""
-    # Increase the log level.
-    mock_tools.logger.verbosity = 2
-
-    # If `sdkmanager` exists and has the right permissions, and
-    # `android-sdk-license` exists, verify() should
-    # succeed, create no subprocesses, make no requests, and return a
-    # SDK wrapper.
-
-    # On Windows, this requires `sdkmanager.bat`; on non-Windows, it requires
-    # `sdkmanager`.
-
-    # Create `sdkmanager` and the license file.
-    android_sdk_root_path = tmp_path / "tools" / "android_sdk"
-    tools_bin = android_sdk_root_path / "cmdline-tools" / "latest" / "bin"
-    tools_bin.mkdir(parents=True, mode=0o755)
-    if platform.system() == "Windows":
-        sdk_manager = tools_bin / "sdkmanager.bat"
-        sdk_manager.touch()
-    else:
-        sdk_manager = tools_bin / "sdkmanager"
-        sdk_manager.touch(mode=0o755)
-
-    # Pre-accept the license
-    accept_license(android_sdk_root_path)()
-
-    # Expect verify() to succeed
-    sdk = AndroidSDK.verify(mock_tools)
-
-    # No calls to download or unpack anything.
-    mock_tools.download.file.assert_not_called()
     mock_tools.shutil.unpack_archive.assert_not_called()
 
     # The returned SDK has the expected root path.
@@ -167,40 +126,6 @@ def test_user_provided_sdk(mock_tools, tmp_path):
 
     # No calls to download or unpack anything.
     mock_tools.download.file.assert_not_called()
-    mock_tools.shutil.unpack_archive.assert_not_called()
-
-    # The returned SDK has the expected root path.
-    assert sdk.root_path == existing_android_sdk_root_path
-
-
-def test_user_provided_sdk_with_debug(mock_tools, tmp_path):
-    """If the has debug with a user-specified ANDROID_SDK_ROOT, the packages
-    are listed."""
-    # Create `sdkmanager` and the license file.
-    existing_android_sdk_root_path = tmp_path / "other_sdk"
-    tools_bin = existing_android_sdk_root_path / "cmdline-tools" / "latest" / "bin"
-    tools_bin.mkdir(parents=True, mode=0o755)
-    if platform.system() == "Windows":
-        sdk_manager = tools_bin / "sdkmanager.bat"
-        sdk_manager.touch()
-    else:
-        sdk_manager = tools_bin / "sdkmanager"
-        sdk_manager.touch(mode=0o755)
-
-    # Pre-accept the license
-    accept_license(existing_android_sdk_root_path)()
-
-    # Set the environment to specify ANDROID_SDK_ROOT
-    mock_tools.os.environ = {
-        "ANDROID_SDK_ROOT": os.fsdecode(existing_android_sdk_root_path)
-    }
-
-    # Expect verify() to succeed
-    sdk = AndroidSDK.verify(mock_tools)
-
-    # No calls to download, run or unpack anything.
-    mock_tools.download.file.assert_not_called()
-    mock_tools.subprocess.run.assert_not_called()
     mock_tools.shutil.unpack_archive.assert_not_called()
 
     # The returned SDK has the expected root path.
@@ -371,8 +296,7 @@ def test_download_sdk_legacy_install(mock_tools, tmp_path):
 
 
 def test_no_install(mock_tools, tmp_path):
-    """If an SDK is not available, and install is not requested, an error is
-    raised."""
+    """If an SDK is not available, and install is not requested, an error is raised."""
 
     # Call `verify()`
     with pytest.raises(MissingToolError):
@@ -386,8 +310,8 @@ def test_no_install(mock_tools, tmp_path):
     reason="executable permission doesn't make sense on Windows",
 )
 def test_download_sdk_if_sdkmanager_not_executable(mock_tools, tmp_path):
-    """An SDK will be downloaded and unpacked if `tools/bin/sdkmanager` exists
-    but does not have its permissions set properly."""
+    """An SDK will be downloaded and unpacked if `tools/bin/sdkmanager` exists but does
+    not have its permissions set properly."""
     android_sdk_root_path = tmp_path / "tools" / "android_sdk"
     cmdline_tools_base_path = android_sdk_root_path / "cmdline-tools"
 

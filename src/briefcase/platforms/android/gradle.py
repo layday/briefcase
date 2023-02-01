@@ -2,6 +2,7 @@ import datetime
 import re
 import subprocess
 import time
+from pathlib import Path
 
 from briefcase.commands import (
     BuildCommand,
@@ -37,7 +38,7 @@ ANDROID_LOG_PREFIX_REGEX = re.compile(
 
 
 def android_log_clean_filter(line):
-    """Filter an ADB log log to extract the Python-generated message content.
+    """Filter an ADB log to extract the Python-generated message content.
 
     Any system or stub messages are ignored; all logging prefixes are stripped.
     Python code is identified as coming from the ``python.stdout``
@@ -112,13 +113,34 @@ class GradleMixin:
             / "app-release.aab"
         )
 
-    def gradlew_path(self, app):
+    def run_gradle(self, app, args):
+        # Gradle may install the emulator via the dependency chain build-tools > tools >
+        # emulator. (The `tools` package only shows up in sdkmanager if you pass
+        # `--include_obsolete`.) However, the old sdkmanager built into Android Gradle
+        # plugin 4.2 doesn't know about macOS on ARM, so it'll install an x86_64 emulator
+        # which won't work with ARM system images.
+        #
+        # Work around this by pre-installing the emulator with our own sdkmanager before
+        # running Gradle. For simplicity, we do this on all platforms, since the user will
+        # almost certainly want an emulator soon enough.
+        self.tools.android_sdk.verify_emulator()
+
         gradlew = "gradlew.bat" if self.tools.host_os == "Windows" else "gradlew"
-        return self.bundle_path(app) / gradlew
+        self.tools.subprocess.run(
+            # Windows needs the full path to `gradlew`; macOS & Linux can find it
+            # via `./gradlew`. For simplicity of implementation, we always provide
+            # the full path.
+            [self.bundle_path(app) / gradlew] + args + ["--console", "plain"],
+            env=self.tools.android_sdk.env,
+            # Set working directory so gradle can use the app bundle path as its
+            # project root, i.e., to avoid 'Task assembleDebug not found'.
+            cwd=self.bundle_path(app),
+            check=True,
+        )
 
     def verify_tools(self):
-        """Verify that the Android APK tools in `briefcase` will operate on
-        this system, downloading tools as needed."""
+        """Verify that the Android APK tools in `briefcase` will operate on this system,
+        downloading tools as needed."""
         super().verify_tools()
         AndroidSDK.verify(tools=self.tools)
         if not self.is_clone:
@@ -154,6 +176,11 @@ class GradleCreateCommand(GradleMixin, CreateCommand):
         return {
             "version_code": version_code,
             "safe_formal_name": safe_formal_name(app.formal_name),
+            # Extract test packages, to enable features like test discovery and assertion
+            # rewriting.
+            "extract_packages": ", ".join(
+                f'"{Path(path).name}"' for path in (app.test_sources or [])
+            ),
         }
 
 
@@ -162,7 +189,7 @@ class GradleUpdateCommand(GradleCreateCommand, UpdateCommand):
 
 
 class GradleOpenCommand(GradleMixin, OpenCommand):
-    description = "Open the folder for an Android Gradle project."
+    description = "Open the folder for an existing Android Gradle project."
 
 
 class GradleBuildCommand(GradleMixin, BuildCommand):
@@ -201,17 +228,7 @@ class GradleBuildCommand(GradleMixin, BuildCommand):
         self.logger.info("Building Android APK...", prefix=app.app_name)
         with self.input.wait_bar("Building..."):
             try:
-                self.tools.subprocess.run(
-                    # Windows needs the full path to `gradlew`; macOS & Linux can find it
-                    # via `./gradlew`. For simplicity of implementation, we always provide
-                    # the full path.
-                    [self.gradlew_path(app), "assembleDebug", "--console", "plain"],
-                    env=self.tools.android_sdk.env,
-                    # Set working directory so gradle can use the app bundle path as its
-                    # project root, i.e., to avoid 'Task assembleDebug not found'.
-                    cwd=self.bundle_path(app),
-                    check=True,
-                )
+                self.run_gradle(app, ["assembleDebug"])
             except subprocess.CalledProcessError as e:
                 raise BriefcaseCommandError("Error while building project.") from e
 
@@ -389,17 +406,7 @@ class GradlePackageCommand(GradleMixin, PackageCommand):
         )
         with self.input.wait_bar("Bundling..."):
             try:
-                self.tools.subprocess.run(
-                    # Windows needs the full path to `gradlew`; macOS & Linux can find it
-                    # via `./gradlew`. For simplicity of implementation, we always provide
-                    # the full path.
-                    [self.gradlew_path(app), "bundleRelease", "--console", "plain"],
-                    env=self.tools.android_sdk.env,
-                    # Set working directory so gradle can use the app bundle path as its
-                    # project root, i.e., to avoid 'Task bundleRelease not found'.
-                    cwd=self.bundle_path(app),
-                    check=True,
-                )
+                self.run_gradle(app, ["bundleRelease"])
             except subprocess.CalledProcessError as e:
                 raise BriefcaseCommandError("Error while building project.") from e
 

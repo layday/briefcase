@@ -12,61 +12,24 @@ from packaging.version import Version
 
 import briefcase
 from briefcase.config import BaseConfig
-from briefcase.exceptions import BriefcaseCommandError, MissingNetworkResourceError
+from briefcase.exceptions import (
+    BriefcaseCommandError,
+    InvalidSupportPackage,
+    MissingAppSources,
+    MissingNetworkResourceError,
+    MissingSupportPackage,
+    RequirementsInstallError,
+    TemplateUnsupportedVersion,
+    UnsupportedPlatform,
+)
 from briefcase.integrations import git
 from briefcase.integrations.subprocess import NativeAppContext
 
-from .base import (
-    BaseCommand,
-    TemplateUnsupportedVersion,
-    UnsupportedPlatform,
-    full_options,
-)
-
-
-class InvalidSupportPackage(BriefcaseCommandError):
-    def __init__(self, filename):
-        self.filename = filename
-        super().__init__(f"Unable to unpack support package {filename!r}")
-
-
-class MissingSupportPackage(BriefcaseCommandError):
-    def __init__(self, python_version_tag, platform, host_arch):
-        self.python_version_tag = python_version_tag
-        self.platform = platform
-        self.host_arch = host_arch
-        super().__init__(
-            f"""\
-Unable to download {self.platform} support package for Python {self.python_version_tag} on {self.host_arch}.
-
-This is likely because either Python {self.python_version_tag} and/or {self.host_arch}
-is not yet supported on {self.platform}. You will need to:
-    * Use an older version of Python; or
-    * Compile your own custom support package.
-"""
-        )
-
-
-class RequirementsInstallError(BriefcaseCommandError):
-    def __init__(self):
-        super().__init__(
-            """\
-Unable to install requirements. This may be because one of your
-requirements is invalid, or because pip was unable to connect
-to the PyPI server.
-"""
-        )
-
-
-class MissingAppSources(BriefcaseCommandError):
-    def __init__(self, src):
-        self.src = src
-        super().__init__(f"Application source {src!r} does not exist.")
+from .base import BaseCommand, full_options
 
 
 def cookiecutter_cache_path(template):
-    """Determine the cookiecutter template cache directory given a template
-    URL.
+    """Determine the cookiecutter template cache directory given a template URL.
 
     This will return a valid path, regardless of whether `template`
 
@@ -118,6 +81,7 @@ def write_dist_info(app: BaseConfig, dist_info_path: Path):
 
 class CreateCommand(BaseCommand):
     command = "create"
+    description = "Create a new app for a target platform."
 
     def __init__(self, *args, **options):
         super().__init__(*args, **options)
@@ -167,8 +131,7 @@ class CreateCommand(BaseCommand):
         return icon_targets
 
     def splash_image_targets(self, app: BaseConfig):
-        """Obtain the dictionary of splash image targets that the template
-        requires.
+        """Obtain the dictionary of splash image targets that the template requires.
 
         :param app: The config object for the app
         :return: A dictionary of splash images that the template supports. The keys
@@ -195,8 +158,8 @@ class CreateCommand(BaseCommand):
         return splash_targets
 
     def document_type_icon_targets(self, app: BaseConfig):
-        """Obtain the dictionary of document type icon targets that the
-        template requires.
+        """Obtain the dictionary of document type icon targets that the template
+        requires.
 
         :param app: The config object for the app
         :return: A dictionary of document types, with the values being dictionaries
@@ -419,8 +382,7 @@ class CreateCommand(BaseCommand):
         requires: List[str],
         requirements_path: Path,
     ):
-        """Configure application requirements by writing a requirements.txt
-        file.
+        """Configure application requirements by writing a requirements.txt file.
 
         :param app: The app configuration
         :param requires: The full list of requirements
@@ -441,18 +403,17 @@ class CreateCommand(BaseCommand):
                             requirement = os.path.abspath(self.base_path / requirement)
                         f.write(f"{requirement}\n")
 
-    def _pip_requires(self, requires: List[str]):
-        """Convert the list of requirements to be passed to pip into its final
-        form.
+    def _pip_requires(self, app: BaseConfig, requires: List[str]):
+        """Convert the list of requirements to be passed to pip into its final form.
 
+        :param app: The app configuration
         :param requires: The user-specified list of app requirements
         :returns: The final list of requirement arguments to pass to pip
         """
         return requires
 
     def _extra_pip_args(self, app: BaseConfig):
-        """Any additional arguments that must be passed to pip when installing
-        packages.
+        """Any additional arguments that must be passed to pip when installing packages.
 
         :param app: The app configuration
         :returns: A list of additional arguments
@@ -513,7 +474,7 @@ class CreateCommand(BaseCommand):
                             f"--target={app_packages_path}",
                         ]
                         + self._extra_pip_args(app)
-                        + self._pip_requires(requires),
+                        + self._pip_requires(app, requires),
                         check=True,
                         **self._pip_kwargs(app),
                     )
@@ -654,8 +615,8 @@ class CreateCommand(BaseCommand):
             misc_file.unlink()
 
     def install_image(self, role, variant, size, source, target):
-        """Install an icon/image of the requested size at a target location,
-        using the source images defined by the app config.
+        """Install an icon/image of the requested size at a target location, using the
+        source images defined by the app config.
 
         :param role: A string describing the role the of the image.
         :param variant: The image variant. A variant of ``None`` means the image
@@ -726,8 +687,8 @@ class CreateCommand(BaseCommand):
                 )
 
     def install_app_resources(self, app: BaseConfig):
-        """Install the application resources (such as icons and splash screens)
-        into the bundle.
+        """Install the application resources (such as icons and splash screens) into the
+        bundle.
 
         :param app: The config object for the app
         """
@@ -874,8 +835,7 @@ class CreateCommand(BaseCommand):
     def verify_tools(self):
         """Verify that the tools needed to run this command exist.
 
-        Raises MissingToolException if a required system tool is
-        missing.
+        Raises MissingToolException if a required system tool is missing.
         """
         super().verify_tools()
         git.verify_git_is_installed(tools=self.tools)
@@ -886,7 +846,8 @@ class CreateCommand(BaseCommand):
         NativeAppContext.verify(tools=self.tools, app=app)
 
     def __call__(self, app: Optional[BaseConfig] = None, **options):
-        # Confirm all required tools are available
+        # Confirm host compatibility and all required tools are available
+        self.verify_host()
         self.verify_tools()
 
         if app:

@@ -53,7 +53,7 @@ class StaticWebUpdateCommand(StaticWebCreateCommand, UpdateCommand):
 
 
 class StaticWebOpenCommand(StaticWebMixin, OpenCommand):
-    description = "Open an existing static web project."
+    description = "Open the folder containing an existing static web project."
 
 
 class StaticWebBuildCommand(StaticWebMixin, BuildCommand):
@@ -83,8 +83,8 @@ class StaticWebBuildCommand(StaticWebMixin, BuildCommand):
                 f.write(line)
 
     def _process_wheel(self, wheelfile, css_file):
-        """Process a wheel, extracting any content that needs to be compiled
-        into the final project.
+        """Process a wheel, extracting any content that needs to be compiled into the
+        final project.
 
         :param wheelfile: The path to the wheel file to be processed.
         :param css_file: A file handle, opened for write/append, to which
@@ -170,7 +170,8 @@ class StaticWebBuildCommand(StaticWebMixin, BuildCommand):
                     "name": app.formal_name,
                     "description": app.description,
                     "version": app.version,
-                    "autoclose_loader": True,
+                    "splashscreen": {"autoclose": True},
+                    "terminal": False,
                     # Ensure that we're using Unix path separators, as the content
                     # will be parsed by pyscript in the browser.
                     "packages": [
@@ -201,8 +202,7 @@ class StaticWebBuildCommand(StaticWebMixin, BuildCommand):
 
 
 class HTTPHandler(SimpleHTTPRequestHandler):
-    """Convert any HTTP request into a path request on the static content
-    folder."""
+    """Convert any HTTP request into a path request on the static content folder."""
 
     def translate_path(self, path):
         return str(self.server.base_path / path[1:])

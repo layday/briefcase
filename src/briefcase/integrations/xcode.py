@@ -16,8 +16,8 @@ class DeviceState(enum.Enum):
 
 
 def verify_xcode_install(tools: ToolCache, min_version: tuple = None):
-    """Verify that Xcode and the command line developer tools are installed and
-    ready for use.
+    """Verify that Xcode and the command line developer tools are installed and ready
+    for use.
 
     We need Xcode, *and* the Xcode Command Line Tools. A completely clean
     machine will have neither Xcode *nor* the Command Line Tools. However,
@@ -45,8 +45,7 @@ def verify_xcode_install(tools: ToolCache, min_version: tuple = None):
 
 
 def verify_command_line_tools_install(tools: ToolCache):
-    """Verify that command line developer tools are installed and ready for
-    use.
+    """Verify that command line developer tools are installed and ready for use.
 
     A completely clean machine will have neither Xcode *nor* the Command Line
     Tools. However, it's possible to install Xcode and *not* install the command
@@ -85,10 +84,7 @@ def ensure_command_line_tools_are_installed(tools: ToolCache):
     #
     # Any other status code is a problem.
     try:
-        tools.subprocess.check_output(
-            ["xcode-select", "--install"],
-            stderr=subprocess.STDOUT,
-        )
+        tools.subprocess.check_output(["xcode-select", "--install"])
         raise BriefcaseCommandError(
             """\
 Xcode command line developer tools are not installed.
@@ -131,8 +127,8 @@ def ensure_xcode_is_installed(
     min_version: tuple = None,
     xcode_location="/Applications/Xcode.app",
 ):
-    """Determine if Xcode is installed; and if so, that it meets minimum
-    version requirements.
+    """Determine if Xcode is installed; and if so, that it meets minimum version
+    requirements.
 
     Raises an exception if XCode isn't installed, or if the version of Xcode
     that is installed doesn't meet the minimum requirement.
@@ -148,10 +144,7 @@ def ensure_xcode_is_installed(
     #  * The path to the currently active Xcode install; or
     #  * error code 2 - No Xcode installation
     try:
-        tools.subprocess.check_output(
-            ["xcode-select", "-p"],
-            stderr=subprocess.STDOUT,
-        )
+        tools.subprocess.check_output(["xcode-select", "-p"])
     except subprocess.CalledProcessError as e:
         raise BriefcaseCommandError(
             """\
@@ -173,10 +166,7 @@ you can re-run Briefcase.
         #   xcode-select: error: tool 'xcodebuild' requires Xcode, but active
         #   developer directory '/Library/Developer/CommandLineTools' is a
         #   command line tools instance
-        output = tools.subprocess.check_output(
-            ["xcodebuild", "-version"],
-            stderr=subprocess.STDOUT,
-        )
+        output = tools.subprocess.check_output(["xcodebuild", "-version"])
 
         if min_version is not None:
             # Look for a line in the output that reads "Xcode X.Y.Z"
@@ -285,10 +275,7 @@ def confirm_xcode_license_accepted(tools: ToolCache):
     # tools return a status code of 69 (nice...) if the license has not been
     # accepted. In this case, we can prompt the user to accept the license.
     try:
-        tools.subprocess.check_output(
-            ["/usr/bin/clang", "--version"],
-            stderr=subprocess.STDOUT,
-        )
+        tools.subprocess.check_output(["/usr/bin/clang", "--version"])
     except subprocess.CalledProcessError as e:
         if e.returncode == 69:
             tools.logger.info(

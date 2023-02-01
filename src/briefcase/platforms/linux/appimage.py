@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import List
 
@@ -14,7 +15,7 @@ from briefcase.commands import (
 )
 from briefcase.commands.create import _is_local_requirement
 from briefcase.config import AppConfig
-from briefcase.exceptions import BriefcaseCommandError
+from briefcase.exceptions import BriefcaseCommandError, UnsupportedHostError
 from briefcase.integrations.docker import Docker, DockerAppContext
 from briefcase.integrations.linuxdeploy import LinuxDeploy
 from briefcase.integrations.subprocess import NativeAppContext
@@ -26,12 +27,19 @@ class LinuxAppImagePassiveMixin(LinuxMixin):
     # docker exists. It is used by commands that are "passive" from the
     # perspective of the build system, like open and run.
     output_format = "appimage"
+    supported_host_os = {"Darwin", "Linux"}
+    supported_host_os_reason = (
+        "Linux AppImages can only be built on Linux, or on macOS using Docker."
+    )
 
     def appdir_path(self, app):
         return self.bundle_path(app) / f"{app.formal_name}.AppDir"
 
     def project_path(self, app):
         return self.bundle_path(app)
+
+    def local_requirements_path(self, app):
+        return self.bundle_path(app) / "_requirements"
 
     def binary_path(self, app):
         binary_name = app.formal_name.replace(" ", "_")
@@ -66,6 +74,8 @@ class LinuxAppImagePassiveMixin(LinuxMixin):
 
 
 class LinuxAppImageMostlyPassiveMixin(LinuxAppImagePassiveMixin):
+    # The Mostly Passive mixin verifies that Docker exists and can be run, but
+    # doesn't require that we're actually in a Linux environment.
     def docker_image_tag(self, app):
         """The Docker image tag for an app."""
         return (
@@ -76,12 +86,7 @@ class LinuxAppImageMostlyPassiveMixin(LinuxAppImagePassiveMixin):
         """If we're using docker, verify that it is available."""
         super().verify_tools()
         if self.use_docker:
-            if self.tools.host_os == "Windows":
-                raise BriefcaseCommandError(
-                    "Linux AppImages cannot be generated on Windows."
-                )
-            else:
-                Docker.verify(tools=self.tools)
+            Docker.verify(tools=self.tools)
 
     def verify_app_tools(self, app: AppConfig):
         """Verify App environment is prepared and available.
@@ -108,38 +113,13 @@ class LinuxAppImageMostlyPassiveMixin(LinuxAppImagePassiveMixin):
         # Establish Docker as app context before letting super set subprocess
         super().verify_app_tools(app)
 
-    def _requirements_mounts(self, app: AppConfig):
-        """Generate the list of Docker volume mounts needed to support local
-        requirements.
-
-        This list of mounts will include *all* possible requirements (i.e.,
-        `requires` *and* `test_requires`)
-
-        :param app: The app for which requirement mounts are needed
-        :returns: A list of (source, target) pairs; source is a fully resolved
-            local filesystem path; target is a path on the Docker filesystem.
-        """
-        requires = app.requires.copy() if app.requires else []
-        if app.test_requires:
-            requires.extend(app.test_requires)
-
-        mounts = []
-        for requirement in requires:
-            if _is_local_requirement(requirement):
-                source = Path(requirement).resolve()
-                mounts.append((str(source), f"/requirements/{source.name}"))
-
-        return mounts
-
 
 class LinuxAppImageMixin(LinuxAppImageMostlyPassiveMixin):
-    def verify_tools(self):
+    def verify_host(self):
         """If we're *not* using Docker, verify that we're actually on Linux."""
-        super().verify_tools()
+        super().verify_host()
         if not self.use_docker and self.tools.host_os != "Linux":
-            raise BriefcaseCommandError(
-                "Linux AppImages can only be generated on Linux without Docker."
-            )
+            raise UnsupportedHostError(self.supported_host_os_reason)
 
 
 class LinuxAppImageCreateCommand(LinuxAppImageMixin, CreateCommand):
@@ -157,49 +137,93 @@ class LinuxAppImageCreateCommand(LinuxAppImageMixin, CreateCommand):
             + self.support_package_filename(support_revision)
         )
 
-    def _pip_requires(self, requires: List[str]):
+    def _install_app_requirements(
+        self,
+        app: AppConfig,
+        requires: List[str],
+        app_packages_path: Path,
+    ):
+        """Install requirements for the app with pip.
+
+        This method pre-compiles any requirement defined using a local path
+        reference into an sdist tarball. This will be used when installing under
+        Docker, as local file references can't be accessed in the Docker
+        container.
+
+        :param app: The app configuration
+        :param requires: The list of requirements to install
+        :param app_packages_path: The full path of the app_packages folder into
+            which requirements should be installed.
+        """
+        # If we're re-building requirements, purge any pre-existing local
+        # requirements.
+        local_requirements_path = self.local_requirements_path(app)
+        if local_requirements_path.exists():
+            self.tools.shutil.rmtree(local_requirements_path)
+        self.tools.os.mkdir(local_requirements_path)
+
+        # Iterate over every requirements, looking for local references
+        for requirement in requires:
+            if _is_local_requirement(requirement):
+                if Path(requirement).is_dir():
+                    # Requirement is a filesystem reference
+                    # Build an sdist for the local requirement
+                    with self.input.wait_bar(f"Building sdist for {requirement}..."):
+                        try:
+                            self.tools.subprocess.check_output(
+                                [
+                                    sys.executable,
+                                    "-m",
+                                    "build",
+                                    "--sdist",
+                                    "--outdir",
+                                    local_requirements_path,
+                                    requirement,
+                                ],
+                            )
+                        except subprocess.CalledProcessError as e:
+                            raise BriefcaseCommandError(
+                                f"Unable to build sdist for {requirement}"
+                            ) from e
+                else:
+                    try:
+                        # Requirement is an existing sdist or wheel file.
+                        self.tools.shutil.copy(requirement, local_requirements_path)
+                    except FileNotFoundError as e:
+                        raise BriefcaseCommandError(
+                            f"Unable to find local requirement {requirement}"
+                        ) from e
+
+        # Continue with the default app requirement handling.
+        return super()._install_app_requirements(
+            app,
+            requires=requires,
+            app_packages_path=app_packages_path,
+        )
+
+    def _pip_requires(self, app: AppConfig, requires: List[str]):
         """Convert the requirements list to an AppImage compatible format.
 
-        If running in no-docker mode, this returns the requirements as specified
-        by the user.
+        Any local file requirements are converted into a reference to the file
+        generated by _install_app_requirements().
 
-        If running in Docker mode, any local file requirements are converted into
-        a reference in the /requirements mount folder.
-
+        :param app: The app configuration
         :param requires: The user-specified list of app requirements
         :returns: The final list of requirement arguments to pass to pip
         """
-        original = super()._pip_requires(requires)
-        if not self.use_docker:
-            return original
+        # Copy all the requirements that are non-local
+        final = [
+            requirement
+            for requirement in super()._pip_requires(app, requires)
+            if not _is_local_requirement(requirement)
+        ]
 
-        final = []
-        for requirement in original:
-            if _is_local_requirement(requirement):
-                source = Path(requirement).resolve()
-                final.append(f"/requirements/{source.name}")
-            else:
-                # Use the requirement as-specified
-                final.append(requirement)
+        # Add in any local packages.
+        # The sort is needed to ensure testing consistency
+        for filename in sorted(self.local_requirements_path(app).iterdir()):
+            final.append(filename)
 
         return final
-
-    def _pip_kwargs(self, app: AppConfig):
-        """Generate the kwargs to pass when invoking pip.
-
-        Adds any mounts needed to support local file requirements.
-
-        :param app: The app configuration
-        :returns: The kwargs to pass to the pip call
-        """
-        kwargs = super()._pip_kwargs(app)
-
-        if self.use_docker:
-            mounts = self._requirements_mounts(app)
-            if mounts:
-                kwargs["mounts"] = mounts
-
-        return kwargs
 
 
 class LinuxAppImageUpdateCommand(LinuxAppImageCreateCommand, UpdateCommand):
@@ -207,21 +231,14 @@ class LinuxAppImageUpdateCommand(LinuxAppImageCreateCommand, UpdateCommand):
 
 
 class LinuxAppImageOpenCommand(LinuxAppImageMostlyPassiveMixin, OpenCommand):
-    description = "Open the folder containing an existing Linux AppImage project."
+    description = (
+        "Open a shell in a Docker container for an existing Linux AppImage project."
+    )
 
     def _open_app(self, app: AppConfig):
         # If we're using Docker, open an interactive shell in the container
         if self.use_docker:
-            kwargs = {}
-            mounts = self._requirements_mounts(app)
-            if mounts:
-                kwargs["mounts"] = mounts
-
-            self.tools[app].app_context.run(
-                ["/bin/bash"],
-                interactive=True,
-                **kwargs,
-            )
+            self.tools[app].app_context.run(["/bin/bash"], interactive=True)
         else:
             super()._open_app(app)
 
@@ -338,12 +355,8 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
 
 class LinuxAppImageRunCommand(LinuxAppImagePassiveMixin, RunCommand):
     description = "Run a Linux AppImage."
-
-    def verify_tools(self):
-        """Verify that we're on Linux."""
-        super().verify_tools()
-        if self.tools.host_os != "Linux":
-            raise BriefcaseCommandError("AppImages can only be executed on Linux.")
+    supported_host_os = {"Linux"}
+    supported_host_os_reason = "Linux AppImages can only be executed on Linux."
 
     def run_app(self, app: AppConfig, test_mode: bool, **kwargs):
         """Start the application.

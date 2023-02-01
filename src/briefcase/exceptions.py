@@ -5,17 +5,7 @@ class BriefcaseError(Exception):
 
 
 class HelpText(BriefcaseError):
-    """Exceptions that contain help text and shouldn't be displayed to users as
-    an error."""
-
-
-class InfoHelpText(HelpText):
-    def __init__(self, msg):
-        super().__init__(error_code=0, skip_logfile=True)
-        self.msg = msg
-
-    def __str__(self):
-        return self.msg
+    """Exceptions that contain help text and shouldn't be displayed as an error."""
 
 
 class NoCommandError(HelpText):
@@ -27,17 +17,6 @@ class NoCommandError(HelpText):
         return self.msg
 
 
-class ShowOutputFormats(InfoHelpText):
-    def __init__(self, platform, default, choices):
-        super().__init__(
-            f"Available formats for {platform}: {', '.join(sorted(choices))}\n"
-            f"Default format: {default}"
-        )
-        self.platform = platform
-        self.default = default
-        self.choices = choices
-
-
 class InvalidFormatError(BriefcaseError):
     def __init__(self, requested, choices):
         super().__init__(error_code=-21, skip_logfile=True)
@@ -45,7 +24,7 @@ class InvalidFormatError(BriefcaseError):
         self.choices = choices
 
     def __str__(self):
-        choices = ", ".join(sorted(self.choices))
+        choices = ", ".join(sorted(self.choices, key=str.lower))
         return f"Invalid format '{self.requested}'; (choose from: {choices})"
 
 
@@ -70,6 +49,15 @@ class BriefcaseConfigError(BriefcaseError):
 
     def __str__(self):
         return f"Briefcase configuration error: {self.msg}"
+
+
+class UnsupportedHostError(BriefcaseError):
+    def __init__(self, reason):
+        super().__init__(error_code=110, skip_logfile=True)
+        self.msg = reason
+
+    def __str__(self):
+        return self.msg
 
 
 class BriefcaseCommandError(BriefcaseError):
@@ -110,6 +98,73 @@ class NonManagedToolError(BriefcaseCommandError):
     def __init__(self, tool):
         self.tool = tool
         super().__init__(msg=f"{tool!r} is using an install that is user managed.")
+
+
+class TemplateUnsupportedVersion(BriefcaseCommandError):
+    def __init__(self, briefcase_version):
+        self.briefcase_version = briefcase_version
+        super().__init__(
+            f"Could not find a template branch for Briefcase {briefcase_version}."
+        )
+
+
+class InvalidTemplateRepository(BriefcaseCommandError):
+    def __init__(self, template):
+        self.template = template
+        super().__init__(
+            f"Unable to clone application template; is the template path {template!r} correct?"
+        )
+
+
+class UnsupportedPlatform(BriefcaseCommandError):
+    def __init__(self, platform):
+        self.platform = platform
+        super().__init__(
+            f"""\
+App cannot be deployed on {platform}. This is probably because one or more
+requirements (e.g., the GUI library) doesn't support {platform}.
+"""
+        )
+
+
+class InvalidSupportPackage(BriefcaseCommandError):
+    def __init__(self, filename):
+        self.filename = filename
+        super().__init__(f"Unable to unpack support package {filename!r}")
+
+
+class MissingSupportPackage(BriefcaseCommandError):
+    def __init__(self, python_version_tag, platform, host_arch):
+        self.python_version_tag = python_version_tag
+        self.platform = platform
+        self.host_arch = host_arch
+        super().__init__(
+            f"""\
+Unable to download {self.platform} support package for Python {self.python_version_tag} on {self.host_arch}.
+
+This is likely because either Python {self.python_version_tag} and/or {self.host_arch}
+is not yet supported on {self.platform}. You will need to:
+    * Use an older version of Python; or
+    * Compile your own custom support package.
+"""
+        )
+
+
+class RequirementsInstallError(BriefcaseCommandError):
+    def __init__(self):
+        super().__init__(
+            """\
+Unable to install requirements. This may be because one of your
+requirements is invalid, or because pip was unable to connect
+to the PyPI server.
+"""
+        )
+
+
+class MissingAppSources(BriefcaseCommandError):
+    def __init__(self, src):
+        self.src = src
+        super().__init__(f"Application source {src!r} does not exist.")
 
 
 class InvalidDeviceError(BriefcaseCommandError):

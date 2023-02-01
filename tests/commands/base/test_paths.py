@@ -1,5 +1,7 @@
 import os
 import platform
+import subprocess
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,43 @@ import pytest
 from briefcase.exceptions import BriefcaseCommandError
 
 from .conftest import DummyCommand
+
+
+@pytest.mark.skipif(platform.system() != "Windows", reason="Windows specific tests")
+def test_path_is_realpath(tmp_path):
+    """Briefcase's data path matches its realpath.
+
+    For the Windows Store Python, filesystem interaction with `%LOCALAPPDATA%` can be
+    redirected to a sandboxed location. However, `os.path.realpath()` will reveal such a
+    redirection. This test ensures that Briefcase bypasses the sandboxing.
+    """
+    data_path = Path(os.environ["LOCALAPPDATA"]) / "realpathbase"
+    try:
+        command = DummyCommand(data_path=data_path)
+        assert command.data_path == Path(os.path.realpath(data_path))
+    finally:
+        with suppress(FileNotFoundError):
+            os.rmdir(data_path)
+
+
+def test_data_path_creation_failure(tmp_path, monkeypatch):
+    """An error is raised if the data path cannot be created."""
+
+    def raise_calledprpcesserror(*a, **kw):
+        raise subprocess.CalledProcessError(returncode=1, cmd=["mkdir", str(data_path)])
+
+    # On Linux and macOS, use /etc/ to raise an OSError
+    data_path = Path("/etc/mydatadir")
+
+    # Patch run() since it's apparently quite difficult to find a
+    # location in Windows that is guaranteed to throw an error...
+    monkeypatch.setattr(subprocess, "run", raise_calledprpcesserror)
+
+    with pytest.raises(
+        BriefcaseCommandError,
+        match=r"Failed to create the Briefcase directory to store tools and support files:",
+    ):
+        DummyCommand(data_path=data_path)
 
 
 def test_space_in_path(tmp_path):
@@ -19,8 +58,8 @@ def test_space_in_path(tmp_path):
 
 
 def test_empty_custom_path(monkeypatch, tmp_path):
-    """If the environment-specified BRIEFCASE_HOME is defined, but empty, an
-    error is raised."""
+    """If the environment-specified BRIEFCASE_HOME is defined, but empty, an error is
+    raised."""
     monkeypatch.setenv("BRIEFCASE_HOME", "")
 
     with pytest.raises(
@@ -31,8 +70,7 @@ def test_empty_custom_path(monkeypatch, tmp_path):
 
 
 def test_custom_path_does_not_exist(monkeypatch, tmp_path):
-    """If the environment-specified BRIEFCASE_HOME doesn't exist, an error is
-    raised."""
+    """If the environment-specified BRIEFCASE_HOME doesn't exist, an error is raised."""
     monkeypatch.setenv("BRIEFCASE_HOME", str(tmp_path / "custom"))
 
     with pytest.raises(
@@ -59,7 +97,9 @@ def templated_path_test(
         base_path=tmp_path / "base",
         data_path=data_path.format(tmp_path=tmp_path) if data_path else None,
     )
+
     assert command.base_path == tmp_path / "base"
+    assert command.data_path.exists()
     assert command.data_path == Path(
         os.path.expanduser(expected_data_path.format(tmp_path=tmp_path))
     )
@@ -80,14 +120,14 @@ def templated_path_test(
             "{tmp_path}custom/briefcase/path",
         ),
         (  # Explicit paths
-            "/path/to/data",
+            "{tmp_path}path/to/data",
             None,
-            "/path/to/data",
+            "{tmp_path}path/to/data",
         ),
         (  # Explicit paths and an environment variable present
-            "/path/to/data",
+            "{tmp_path}path/to/data",
             "{tmp_path}custom/briefcase/path",
-            "/path/to/data",
+            "{tmp_path}path/to/data",
         ),
     ],
 )
@@ -122,14 +162,14 @@ def test_macOS_paths(
             "{tmp_path}custom\\briefcase\\path",
         ),
         (  # Explicit paths
-            "Z:\\path\\to\\data",
+            "{tmp_path}path\\to\\data",
             None,
-            "Z:\\path\\to\\data",
+            "{tmp_path}path\\to\\data",
         ),
         (  # Explicit paths and an environment variable present
-            "Z:\\path\\to\\data",
+            "{tmp_path}path\\to\\data",
             "{tmp_path}\\briefcase\\path",
-            "Z:\\path\\to\\data",
+            "{tmp_path}path\\to\\data",
         ),
     ],
 )
@@ -164,14 +204,14 @@ def test_windows_paths(
             "{tmp_path}custom/briefcase/path",
         ),
         (  # Explicit paths
-            "/path/to/data",
+            "{tmp_path}path/to/data",
             None,
-            "/path/to/data",
+            "{tmp_path}path/to/data",
         ),
         (  # Explicit paths and an environment variable present
-            "/path/to/data",
+            "{tmp_path}path/to/data",
             "{tmp_path}custom/briefcase/path",
-            "/path/to/data",
+            "{tmp_path}path/to/data",
         ),
     ],
 )

@@ -4,18 +4,19 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from briefcase.commands.run import RunAppMixin
 from briefcase.config import BaseConfig
-from briefcase.exceptions import BriefcaseCommandError
+from briefcase.exceptions import BriefcaseCommandError, RequirementsInstallError
 
 from .base import BaseCommand
-from .create import RequirementsInstallError, write_dist_info
+from .create import write_dist_info
 
 
-class DevCommand(BaseCommand):
+class DevCommand(RunAppMixin, BaseCommand):
     cmd_line = "briefcase dev"
     command = "dev"
     output_format = None
-    description = "Run a briefcase project in the dev environment"
+    description = "Run a Briefcase project in the dev environment."
 
     @property
     def platform(self):
@@ -104,34 +105,36 @@ class DevCommand(BaseCommand):
         :param env: environment dictionary for sub command
         :param test_mode: Run the test suite, rather than the app?
         """
-        try:
-            main_module = app.main_module(test_mode)
+        main_module = app.main_module(test_mode)
+        app_popen = self.tools.subprocess.Popen(
+            [
+                sys.executable,
+                "-u",
+                "-X",
+                "dev",
+                "-X",
+                "utf8",
+                "-c",
+                (
+                    "import runpy, sys;"
+                    "sys.path.pop(0);"
+                    f'runpy.run_module("{main_module}", run_name="__main__", alter_sys=True)'
+                ),
+            ],
+            env=env,
+            cwd=self.tools.home_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=1,
+        )
 
-            # Invoke the app.
-            self.logger.info("=" * 75)
-            self.tools.subprocess.run(
-                [
-                    sys.executable,
-                    "-u",
-                    "-X",
-                    "dev",
-                    "-X",
-                    "utf8",
-                    "-c",
-                    (
-                        "import runpy, sys;"
-                        "sys.path.pop(0);"
-                        f'runpy.run_module("{main_module}", run_name="__main__", alter_sys=True)'
-                    ),
-                ],
-                env=env,
-                check=True,
-                cwd=self.tools.home_path,
-            )
-        except subprocess.CalledProcessError as e:
-            raise BriefcaseCommandError(
-                f"Problem running {'test suite' if test_mode else 'application'} {main_module!r}"
-            ) from e
+        # Start streaming logs for the app.
+        self._stream_app_logs(
+            app,
+            popen=app_popen,
+            test_mode=test_mode,
+            clean_output=False,
+        )
 
     def get_environment(self, app, test_mode: bool):
         # Create a shell environment where PYTHONPATH points to the source
@@ -158,7 +161,8 @@ class DevCommand(BaseCommand):
         test_mode: Optional[bool] = False,
         **options,
     ):
-        # Confirm all required tools are available
+        # Confirm host compatibility and all required tools are available
+        self.verify_host()
         self.verify_tools()
 
         # Which app should we run? If there's only one defined

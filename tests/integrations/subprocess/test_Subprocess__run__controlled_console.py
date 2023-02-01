@@ -5,17 +5,12 @@ from unittest.mock import ANY
 
 import pytest
 
-#####
-# These tests are run with stream_output=False to ensure it is the
-# Wait Bar that influences the control flow of Subprocess.run().
-#####
-
 
 def test_call(mock_sub, capsys):
     """A simple call will be invoked."""
 
     with mock_sub.tools.input.wait_bar():
-        mock_sub.run(["hello", "world"], stream_output=False)
+        mock_sub.run(["hello", "world"])
 
     mock_sub._subprocess.Popen.assert_called_with(
         ["hello", "world"],
@@ -40,7 +35,7 @@ def test_call_with_arg(mock_sub, capsys):
     """Any extra keyword arguments are passed through as-is."""
 
     with mock_sub.tools.input.wait_bar():
-        mock_sub.run(["hello", "world"], universal_newlines=True, stream_output=False)
+        mock_sub.run(["hello", "world"], universal_newlines=True)
 
     mock_sub._subprocess.Popen.assert_called_with(
         ["hello", "world"],
@@ -66,7 +61,7 @@ def test_debug_call(mock_sub, capsys):
     mock_sub.tools.logger.verbosity = 2
 
     with mock_sub.tools.input.wait_bar():
-        mock_sub.run(["hello", "world"], stream_output=False)
+        mock_sub.run(["hello", "world"])
 
     mock_sub._subprocess.Popen.assert_called_with(
         ["hello", "world"],
@@ -92,8 +87,7 @@ def test_debug_call(mock_sub, capsys):
 
 
 def test_debug_call_with_env(mock_sub, capsys, tmp_path):
-    """If verbosity is turned up, injected env vars are included in debug
-    output."""
+    """If verbosity is turned up, injected env vars are included in debug output."""
     mock_sub.tools.logger.verbosity = 2
 
     env = {"NewVar": "NewVarValue"}
@@ -102,7 +96,6 @@ def test_debug_call_with_env(mock_sub, capsys, tmp_path):
             ["hello", "world"],
             env=env,
             cwd=tmp_path / "cwd",
-            stream_output=False,
         )
 
     merged_env = mock_sub.tools.os.environ.copy()
@@ -150,10 +143,10 @@ def test_debug_call_with_env(mock_sub, capsys, tmp_path):
     ],
 )
 def test_text_eq_true_default_overriding(mock_sub, in_kwargs, kwargs):
-    """if text or universal_newlines is explicitly provided, those should
-    override text=true default."""
+    """if text or universal_newlines is explicitly provided, those should override
+    text=true default."""
     with mock_sub.tools.input.wait_bar():
-        mock_sub.run(["hello", "world"], **in_kwargs, stream_output=False)
+        mock_sub.run(["hello", "world"], **in_kwargs)
 
     mock_sub._subprocess.Popen.assert_called_with(
         ["hello", "world"],
@@ -172,7 +165,6 @@ def test_stderr_is_redirected(mock_sub, streaming_process, capsys):
         run_result = mock_sub.run(
             ["hello", "world"],
             stderr=subprocess.PIPE,
-            stream_output=False,
         )
 
     mock_sub._subprocess.Popen.assert_called_with(
@@ -203,7 +195,6 @@ def test_stderr_dev_null(mock_sub, streaming_process, capsys):
         run_result = mock_sub.run(
             ["hello", "world"],
             stderr=subprocess.DEVNULL,
-            stream_output=False,
         )
 
     mock_sub._subprocess.Popen.assert_called_with(
@@ -227,8 +218,7 @@ def test_stderr_dev_null(mock_sub, streaming_process, capsys):
 
 
 def test_calledprocesserror(mock_sub, streaming_process, capsys):
-    """CalledProcessError is raised with check=True and non-zero return
-    value."""
+    """CalledProcessError is raised with check=True and non-zero return value."""
     stderr_output = "stderr output\nline 2"
     streaming_process.stderr.read.return_value = stderr_output
 
@@ -238,7 +228,6 @@ def test_calledprocesserror(mock_sub, streaming_process, capsys):
                 ["hello", "world"],
                 check=True,
                 stderr=subprocess.PIPE,
-                stream_output=False,
             )
 
     # fmt: off
@@ -262,31 +251,9 @@ def test_invalid_invocations(mock_sub):
             mock_sub.run(
                 ["hello", "world"],
                 stdout=subprocess.PIPE,
-                stream_output=False,
             )
 
     for invalid_arg in ("timeout", "input"):
         with pytest.raises(AssertionError):
             with mock_sub.tools.input.wait_bar():
                 mock_sub.run(["hello", "world"], **{invalid_arg: "value"})
-
-
-@pytest.mark.parametrize(
-    "redirected_kwargs",
-    [
-        dict(capture_output=True),
-        dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE),
-        dict(stdout=subprocess.PIPE, stderr=subprocess.STDOUT),
-        dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-        dict(stdout=-1, stderr=-1),
-    ],
-)
-def test_redirected_output(mock_sub, redirected_kwargs, capsys):
-    """Output is not streamed if it is redirected."""
-    with mock_sub.tools.input.wait_bar():
-        mock_sub.run(["hello", "world"], stream_output=False, **redirected_kwargs)
-
-    mock_sub._subprocess.run.assert_called_with(
-        ["hello", "world"], text=True, encoding=ANY, **redirected_kwargs
-    )
-    assert capsys.readouterr().out == "\n"

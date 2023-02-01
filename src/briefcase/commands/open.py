@@ -7,6 +7,7 @@ from .base import BaseCommand, full_options
 
 class OpenCommand(BaseCommand):
     command = "open"
+    description = "Open an app in the build tool for the target platform."
 
     def _open_app(self, app: BaseConfig):
         if self.tools.host_os == "Windows":
@@ -38,7 +39,8 @@ class OpenCommand(BaseCommand):
         return state
 
     def __call__(self, app: Optional[BaseConfig] = None, **options):
-        # Confirm all required tools are available
+        # Confirm host compatibility and all required tools are available
+        self.verify_host()
         self.verify_tools()
 
         if app:
