@@ -22,13 +22,46 @@ def test_no_args_one_app(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
-        ("run", "first", {"test_mode": False}),
+        ("run", "first", {"test_mode": False, "passthrough": []}),
+    ]
+
+
+def test_no_args_one_app_with_passthrough(run_command, first_app):
+    """If there is one app, run starts that app by default, and can accept
+    passthrough."""
+    # Add a single app
+    run_command.apps = {
+        "first": first_app,
+    }
+
+    # Configure no command line options
+    options = run_command.parse_options(["--", "foo", "--bar"])
+
+    # Run the run command
+    run_command(**options)
+
+    # The right sequence of things will be done
+    assert run_command.actions == [
+        # Host OS is verified
+        ("verify-host",),
+        # Tools are verified
+        ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
+        # App tools have been verified
+        ("verify-app-tools", "first"),
+        # Run the first app
+        ("run", "first", {"test_mode": False, "passthrough": ["foo", "--bar"]}),
     ]
 
 
 def test_no_args_two_apps(run_command, first_app, second_app):
-    """If there are one app, run starts that app by default."""
+    """If there are two apps and no explicit app is started, an error is raised."""
     # Add two apps
     run_command.apps = {
         "first": first_app,
@@ -42,13 +75,8 @@ def test_no_args_two_apps(run_command, first_app, second_app):
     with pytest.raises(BriefcaseCommandError):
         run_command(**options)
 
-    # Only verification actions will be performed
-    assert run_command.actions == [
-        # Host OS is verified
-        ("verify-host",),
-        # Tools are verified
-        ("verify-tools",),
-    ]
+    # No verification actions will be performed
+    assert run_command.actions == []
 
 
 def test_with_arg_one_app(run_command, first_app):
@@ -70,8 +98,12 @@ def test_with_arg_one_app(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
-        ("run", "first", {"test_mode": False}),
+        ("run", "first", {"test_mode": False, "passthrough": []}),
     ]
 
 
@@ -95,8 +127,12 @@ def test_with_arg_two_apps(run_command, first_app, second_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "second"),
+        # App tools have been verified
+        ("verify-app-tools", "second"),
         # Run the second app
-        ("run", "second", {"test_mode": False}),
+        ("run", "second", {"test_mode": False, "passthrough": []}),
     ]
 
 
@@ -116,13 +152,8 @@ def test_bad_app_reference(run_command, first_app, second_app):
     with pytest.raises(BriefcaseCommandError):
         run_command(**options)
 
-    # Only verification actions will be performed
-    assert run_command.actions == [
-        # Host OS is verified
-        ("verify-host",),
-        # Tools are verified
-        ("verify-tools",),
-    ]
+    # No verification actions will be performed
+    assert run_command.actions == []
 
 
 def test_create_app_before_start(run_command, first_app_config):
@@ -144,6 +175,8 @@ def test_create_app_before_start(run_command, first_app_config):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App doesn't exist, so it will be built
         # (which will transitively create)
         (
@@ -157,20 +190,22 @@ def test_create_app_before_start(run_command, first_app_config):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
 
-def test_build_app_before_start(run_command, first_app_uncompiled):
-    """The run command can request that an uncompiled app is compiled first."""
+def test_build_app_before_start(run_command, first_app_unbuilt):
+    """The run command can request that an unbuilt app is compiled first."""
     # Add a single app
     run_command.apps = {
-        "first": first_app_uncompiled,
+        "first": first_app_unbuilt,
     }
 
     # Configure no command line options
@@ -185,6 +220,8 @@ def test_build_app_before_start(run_command, first_app_uncompiled):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # A build was requested, with no update
         (
             "build",
@@ -197,8 +234,14 @@ def test_build_app_before_start(run_command, first_app_uncompiled):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
-        ("run", "first", {"build_state": "first", "test_mode": False}),
+        (
+            "run",
+            "first",
+            {"build_state": "first", "test_mode": False, "passthrough": []},
+        ),
     ]
 
 
@@ -221,6 +264,8 @@ def test_update_app(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # A build with an explicit update was requested
         (
             "build",
@@ -233,11 +278,13 @@ def test_update_app(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
@@ -261,6 +308,8 @@ def test_update_app_requirements(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # A build with an explicit update was requested
         (
             "build",
@@ -273,11 +322,13 @@ def test_update_app_requirements(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
@@ -301,6 +352,8 @@ def test_update_app_resources(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # A build with an explicit update was requested
         (
             "build",
@@ -313,20 +366,22 @@ def test_update_app_resources(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
 
-def test_update_uncompiled_app(run_command, first_app_uncompiled):
-    """The run command can request that an uncompiled app is updated first."""
+def test_update_unbuilt_app(run_command, first_app_unbuilt):
+    """The run command can request that an unbuilt app is updated first."""
     # Add a single app
     run_command.apps = {
-        "first": first_app_uncompiled,
+        "first": first_app_unbuilt,
     }
 
     # Configure an update option
@@ -341,6 +396,8 @@ def test_update_uncompiled_app(run_command, first_app_uncompiled):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # An update was requested, so a build with an explicit update
         # will be performed
         (
@@ -354,11 +411,13 @@ def test_update_uncompiled_app(run_command, first_app_uncompiled):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
@@ -382,6 +441,8 @@ def test_update_non_existent(run_command, first_app_config):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App doesn't exist, so it will be built, with an
         # update requested
         (
@@ -395,11 +456,13 @@ def test_update_non_existent(run_command, first_app_config):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": False},
+            {"build_state": "first", "test_mode": False, "passthrough": []},
         ),
     ]
 
@@ -423,6 +486,8 @@ def test_test_mode_existing_app(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App is built in test mode
         (
             "build",
@@ -435,11 +500,61 @@ def test_test_mode_existing_app(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": True},
+            {"build_state": "first", "test_mode": True, "passthrough": []},
+        ),
+    ]
+
+
+def test_test_mode_existing_app_with_passthrough(run_command, first_app):
+    """An existing app can be started in test mode with passthrough args."""
+    # Add a single app
+    run_command.apps = {
+        "first": first_app,
+    }
+
+    # Configure the test option
+    options = run_command.parse_options(["--test", "--", "foo", "--bar"])
+
+    # Run the run command
+    run_command(**options)
+
+    # The right sequence of things will be done
+    assert run_command.actions == [
+        # Host OS is verified
+        ("verify-host",),
+        # Tools are verified
+        ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
+        # App is built in test mode
+        (
+            "build",
+            "first",
+            {
+                "test_mode": True,
+                "update": False,
+                "update_requirements": False,
+                "update_resources": False,
+                "no_update": False,
+            },
+        ),
+        # App tools have been verified
+        ("verify-app-tools", "first"),
+        # Run the first app
+        (
+            "run",
+            "first",
+            {
+                "build_state": "first",
+                "test_mode": True,
+                "passthrough": ["foo", "--bar"],
+            },
         ),
     ]
 
@@ -463,12 +578,16 @@ def test_test_mode_existing_app_no_update(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App will not be built; update is disabled
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
         (
             "run",
             "first",
-            {"test_mode": True},
+            {"test_mode": True, "passthrough": []},
         ),
     ]
 
@@ -492,6 +611,8 @@ def test_test_mode_existing_app_update_requirements(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App will be built with a requirements update
         (
             "build",
@@ -504,11 +625,13 @@ def test_test_mode_existing_app_update_requirements(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": True},
+            {"build_state": "first", "test_mode": True, "passthrough": []},
         ),
     ]
 
@@ -532,6 +655,8 @@ def test_test_mode_existing_app_update_resources(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App will be built with a resource update
         (
             "build",
@@ -544,11 +669,13 @@ def test_test_mode_existing_app_update_resources(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": True},
+            {"build_state": "first", "test_mode": True, "passthrough": []},
         ),
     ]
 
@@ -572,6 +699,8 @@ def test_test_mode_update_existing_app(run_command, first_app):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App will be built; update is explicit
         (
             "build",
@@ -584,11 +713,13 @@ def test_test_mode_update_existing_app(run_command, first_app):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Run the first app
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": True},
+            {"build_state": "first", "test_mode": True, "passthrough": []},
         ),
     ]
 
@@ -612,6 +743,8 @@ def test_test_mode_non_existent(run_command, first_app_config):
         ("verify-host",),
         # Tools are verified
         ("verify-tools",),
+        # App config has been finalized
+        ("finalize-app-config", "first"),
         # App will be built in test mode, (which will transitively create)
         (
             "build",
@@ -624,10 +757,12 @@ def test_test_mode_non_existent(run_command, first_app_config):
                 "no_update": False,
             },
         ),
+        # App tools are verified
+        ("verify-app-tools", "first"),
         # Then, it will be started
         (
             "run",
             "first",
-            {"build_state": "first", "test_mode": True},
+            {"build_state": "first", "test_mode": True, "passthrough": []},
         ),
     ]

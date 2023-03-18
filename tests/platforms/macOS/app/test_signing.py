@@ -66,9 +66,10 @@ def sign_call(
                 os.fsdecode(
                     tmp_path
                     / "base_path"
-                    / "macOS"
+                    / "build"
+                    / "first-app"
+                    / "macos"
                     / "app"
-                    / "First App"
                     / "Entitlements.plist"
                 ),
             ]
@@ -190,7 +191,10 @@ def test_no_identities(dummy_command):
 
     with pytest.raises(
         BriefcaseCommandError,
-        match=r"No code signing identities are available.",
+        match=(
+            r"No code signing identities are available: see "
+            r"https://briefcase.readthedocs.io/en/stable/how-to/code-signing/macOS.html"
+        ),
     ):
         dummy_command.select_identity()
 
@@ -246,9 +250,10 @@ def test_sign_file_entitlements(dummy_command, tmp_path):
         identity="Sekrit identity (DEADBEEF)",
         entitlements=tmp_path
         / "base_path"
-        / "macOS"
+        / "build"
+        / "first-app"
+        / "macos"
         / "app"
-        / "First App"
         / "Entitlements.plist",
     )
 
@@ -427,7 +432,15 @@ def test_sign_app(dummy_command, first_app_with_binaries, tmp_path):
     # * It *doesn't* discover directories
     # * It *doesn't* discover non-Mach-O binaries
     # * It traverses in "depth first" order
-    app_path = tmp_path / "base_path" / "macOS" / "app" / "First App" / "First App.app"
+    app_path = (
+        tmp_path
+        / "base_path"
+        / "build"
+        / "first-app"
+        / "macos"
+        / "app"
+        / "First App.app"
+    )
     lib_path = app_path / "Contents" / "Resources"
     frameworks_path = app_path / "Contents" / "Frameworks"
     dummy_command.tools.subprocess.run.assert_has_calls(

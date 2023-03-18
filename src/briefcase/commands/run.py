@@ -1,6 +1,6 @@
 import re
 from abc import abstractmethod
-from typing import Optional
+from typing import List, Optional
 
 from briefcase.config import BaseConfig
 from briefcase.exceptions import BriefcaseCommandError, BriefcaseTestSuiteFailure
@@ -114,6 +114,8 @@ class LogFilter:
 
 class RunAppMixin:
     """A mixin that captures the logic of starting an app and streaming the app logs."""
+
+    allows_passthrough = True
 
     def _stream_app_logs(
         self,
@@ -246,12 +248,9 @@ class RunCommand(RunAppMixin, BaseCommand):
         update_resources: bool = False,
         no_update: bool = False,
         test_mode: bool = False,
+        passthrough: Optional[List[str]] = None,
         **options,
     ):
-        # Confirm host compatibility and all required tools are available
-        self.verify_host()
-        self.verify_tools()
-
         # Which app should we run? If there's only one defined
         # in pyproject.toml, then we can use it as a default;
         # otherwise look for a -a/--app option.
@@ -268,6 +267,11 @@ class RunCommand(RunAppMixin, BaseCommand):
             raise BriefcaseCommandError(
                 "Project specifies more than one application; use --app to specify which one to start."
             )
+
+        # Confirm host compatibility, that all required tools are available,
+        # and that the app configuration is finalized.
+        self.finalize(app)
+
         template_file = self.bundle_path(app)
         binary_file = self.binary_path(app)
         if (
@@ -294,6 +298,11 @@ class RunCommand(RunAppMixin, BaseCommand):
 
         self.verify_app_tools(app)
 
-        state = self.run_app(app, test_mode=test_mode, **full_options(state, options))
+        state = self.run_app(
+            app,
+            test_mode=test_mode,
+            passthrough=[] if passthrough is None else passthrough,
+            **full_options(state, options),
+        )
 
         return state

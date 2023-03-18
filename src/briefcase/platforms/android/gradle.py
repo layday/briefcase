@@ -3,6 +3,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from typing import List
 
 from briefcase.commands import (
     BuildCommand,
@@ -73,21 +74,6 @@ class GradleMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def bundle_path(self, app):
-        """The path to the bundle for the app in the output format.
-
-        The bundle is the template-generated source form of the app.
-        The path will usually be a directory, the existence of which is
-        indicative that the template has been rolled out for an app.
-
-        This overrides the default behavior, using a "safe" formal name
-
-        :param app: The app config
-        """
-        return (
-            self.platform_path / self.output_format / safe_formal_name(app.formal_name)
-        )
-
     def project_path(self, app):
         return self.bundle_path(app)
 
@@ -102,16 +88,8 @@ class GradleMixin:
             / "app-debug.apk"
         )
 
-    def distribution_path(self, app, packaging_format):
-        return (
-            self.bundle_path(app)
-            / "app"
-            / "build"
-            / "outputs"
-            / "bundle"
-            / "release"
-            / "app-release.aab"
-        )
+    def distribution_path(self, app):
+        return self.dist_path / f"{app.formal_name}-{app.version}.aab"
 
     def run_gradle(self, app, args):
         # Gradle may install the emulator via the dependency chain build-tools > tools >
@@ -179,7 +157,9 @@ class GradleCreateCommand(GradleMixin, CreateCommand):
             # Extract test packages, to enable features like test discovery and assertion
             # rewriting.
             "extract_packages": ", ".join(
-                f'"{Path(path).name}"' for path in (app.test_sources or [])
+                f'"{name}"'
+                for path in (app.test_sources or [])
+                if (name := Path(path).name)
             ),
         }
 
@@ -268,6 +248,7 @@ class GradleRunCommand(GradleMixin, RunCommand):
         self,
         app: BaseConfig,
         test_mode: bool,
+        passthrough: List[str],
         device_or_avd=None,
         extra_emulator_args=None,
         shutdown_on_exit=False,
@@ -277,6 +258,7 @@ class GradleRunCommand(GradleMixin, RunCommand):
 
         :param app: The config object for the app
         :param test_mode: Boolean; Is the app running in test mode?
+        :param passthrough: The list of arguments to pass to the app
         :param device_or_avd: The device to target. If ``None``, the user will
             be asked to re-run the command selecting a specific device.
         :param extra_emulator_args: Any additional arguments to pass to the emulator.
@@ -339,7 +321,7 @@ class GradleRunCommand(GradleMixin, RunCommand):
             with self.input.wait_bar(f"Launching {label}..."):
                 # Any log after this point must be associated with the new instance
                 start_time = datetime.datetime.now()
-                adb.start_app(package, "org.beeware.android.MainActivity")
+                adb.start_app(package, "org.beeware.android.MainActivity", passthrough)
                 pid = None
                 attempts = 0
                 delay = 0.01
@@ -409,6 +391,18 @@ class GradlePackageCommand(GradleMixin, PackageCommand):
                 self.run_gradle(app, ["bundleRelease"])
             except subprocess.CalledProcessError as e:
                 raise BriefcaseCommandError("Error while building project.") from e
+
+        # Move artefact to final location.
+        self.tools.shutil.move(
+            self.bundle_path(app)
+            / "app"
+            / "build"
+            / "outputs"
+            / "bundle"
+            / "release"
+            / "app-release.aab",
+            self.distribution_path(app),
+        )
 
 
 class GradlePublishCommand(GradleMixin, PublishCommand):

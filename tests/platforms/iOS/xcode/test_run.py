@@ -44,6 +44,7 @@ def test_device_option(run_command):
         "update_resources": False,
         "no_update": False,
         "test_mode": False,
+        "passthrough": [],
         "appname": None,
     }
 
@@ -68,7 +69,7 @@ def test_run_multiple_devices_input_disabled(run_command, first_app_config):
         BriefcaseCommandError,
         match=r"Input has been disabled; can't select a device to target.",
     ):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
 
 def test_run_app_simulator_booted(run_command, first_app_config, tmp_path):
@@ -91,7 +92,7 @@ def test_run_app_simulator_booted(run_command, first_app_config, tmp_path):
     run_command.tools.subprocess.Popen.return_value = log_stream_process
 
     # Run the app
-    run_command.run_app(first_app_config, test_mode=False)
+    run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -128,9 +129,10 @@ def test_run_app_simulator_booted(run_command, first_app_config, tmp_path):
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -147,6 +149,125 @@ def test_run_app_simulator_booted(run_command, first_app_config, tmp_path):
             "launch",
             "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
             "com.example.first-app",
+        ],
+    )
+
+    # Start the log stream
+    run_command.tools.subprocess.Popen.assert_called_once_with(
+        [
+            "xcrun",
+            "simctl",
+            "spawn",
+            "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+            "log",
+            "stream",
+            "--style",
+            "compact",
+            "--predicate",
+            'senderImagePath ENDSWITH "/First App"'
+            ' OR (processImagePath ENDSWITH "/First App"'
+            ' AND senderImagePath ENDSWITH "-iphonesimulator.so")',
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+
+    # Log stream monitoring was started
+    run_command._stream_app_logs.assert_called_with(
+        first_app_config,
+        popen=log_stream_process,
+        test_mode=False,
+        clean_filter=macOS_log_clean_filter,
+        clean_output=True,
+        stop_func=mock.ANY,
+        log_stream=True,
+    )
+
+
+def test_run_app_with_passthrough(run_command, first_app_config, tmp_path):
+    """An iOS App can be started with passthrough args."""
+    # A valid target device will be selected.
+    run_command.select_target_device = mock.MagicMock(
+        return_value=("2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D", "13.2", "iPhone 11")
+    )
+
+    # Simulator is already booted
+    run_command.get_device_state = mock.MagicMock(return_value=DeviceState.BOOTED)
+
+    # Mock a process ID for the app
+    run_command.tools.subprocess.check_output.return_value = (
+        "com.example.first-app: 1234\n"
+    )
+
+    # Mock the log stream
+    log_stream_process = mock.MagicMock(spec_set=subprocess.Popen)
+    run_command.tools.subprocess.Popen.return_value = log_stream_process
+
+    # Run the app with passthrough args.
+    run_command.run_app(
+        first_app_config,
+        test_mode=False,
+        passthrough=["foo", "--bar"],
+    )
+
+    # The correct sequence of commands was issued.
+    run_command.tools.subprocess.run.assert_has_calls(
+        [
+            # Open the simulator
+            mock.call(
+                [
+                    "open",
+                    "-a",
+                    "Simulator",
+                    "--args",
+                    "-CurrentDeviceUDID",
+                    "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+                ],
+                check=True,
+            ),
+            # Uninstall the old app
+            mock.call(
+                [
+                    "xcrun",
+                    "simctl",
+                    "uninstall",
+                    "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+                    "com.example.first-app",
+                ],
+                check=True,
+            ),
+            # Install the new app
+            mock.call(
+                [
+                    "xcrun",
+                    "simctl",
+                    "install",
+                    "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+                    tmp_path
+                    / "base_path"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
+                    / "build"
+                    / "Debug-iphonesimulator"
+                    / "First App.app",
+                ],
+                check=True,
+            ),
+        ]
+    )
+    # Launch the new app
+    run_command.tools.subprocess.check_output.assert_called_once_with(
+        [
+            "xcrun",
+            "simctl",
+            "launch",
+            "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+            "com.example.first-app",
+            "foo",
+            "--bar",
         ],
     )
 
@@ -205,7 +326,7 @@ def test_run_app_simulator_shut_down(run_command, first_app_config, tmp_path):
     run_command.tools.subprocess.Popen.return_value = log_stream_process
 
     # Run the app
-    run_command.run_app(first_app_config, test_mode=False)
+    run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -247,9 +368,10 @@ def test_run_app_simulator_shut_down(run_command, first_app_config, tmp_path):
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -335,7 +457,7 @@ def test_run_app_simulator_shutting_down(run_command, first_app_config, tmp_path
     run_command.tools.subprocess.Popen.return_value = log_stream_process
 
     # Run the app
-    run_command.run_app(first_app_config, test_mode=False)
+    run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # We should have slept 4 times
     assert run_command.sleep.call_count == 4
@@ -380,9 +502,10 @@ def test_run_app_simulator_shutting_down(run_command, first_app_config, tmp_path
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -453,7 +576,7 @@ def test_run_app_simulator_boot_failure(run_command, first_app_config):
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -493,7 +616,7 @@ def test_run_app_simulator_open_failure(run_command, first_app_config):
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -544,7 +667,7 @@ def test_run_app_simulator_uninstall_failure(run_command, first_app_config):
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -607,7 +730,7 @@ def test_run_app_simulator_install_failure(run_command, first_app_config, tmp_pa
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -649,9 +772,10 @@ def test_run_app_simulator_install_failure(run_command, first_app_config, tmp_pa
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -697,7 +821,7 @@ def test_run_app_simulator_launch_failure(run_command, first_app_config, tmp_pat
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -739,9 +863,10 @@ def test_run_app_simulator_launch_failure(run_command, first_app_config, tmp_pat
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -815,7 +940,7 @@ def test_run_app_simulator_no_pid(run_command, first_app_config, tmp_path):
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -857,9 +982,10 @@ def test_run_app_simulator_no_pid(run_command, first_app_config, tmp_path):
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -935,7 +1061,7 @@ def test_run_app_simulator_non_integer_pid(run_command, first_app_config, tmp_pa
 
     # Run the app
     with pytest.raises(BriefcaseCommandError):
-        run_command.run_app(first_app_config, test_mode=False)
+        run_command.run_app(first_app_config, test_mode=False, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -977,9 +1103,10 @@ def test_run_app_simulator_non_integer_pid(run_command, first_app_config, tmp_pa
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -1045,7 +1172,7 @@ def test_run_app_test_mode(run_command, first_app_config, tmp_path):
     run_command.tools.subprocess.Popen.return_value = log_stream_process
 
     # Run the app
-    run_command.run_app(first_app_config, test_mode=True)
+    run_command.run_app(first_app_config, test_mode=True, passthrough=[])
 
     # The correct sequence of commands was issued.
     run_command.tools.subprocess.run.assert_has_calls(
@@ -1071,9 +1198,10 @@ def test_run_app_test_mode(run_command, first_app_config, tmp_path):
                     "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
                     tmp_path
                     / "base_path"
-                    / "iOS"
-                    / "Xcode"
-                    / "First App"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
                     / "build"
                     / "Debug-iphonesimulator"
                     / "First App.app",
@@ -1091,6 +1219,115 @@ def test_run_app_test_mode(run_command, first_app_config, tmp_path):
             "launch",
             "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
             "com.example.first-app",
+        ],
+    )
+
+    # Start the log stream
+    run_command.tools.subprocess.Popen.assert_called_once_with(
+        [
+            "xcrun",
+            "simctl",
+            "spawn",
+            "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+            "log",
+            "stream",
+            "--style",
+            "compact",
+            "--predicate",
+            'senderImagePath ENDSWITH "/First App"'
+            ' OR (processImagePath ENDSWITH "/First App"'
+            ' AND senderImagePath ENDSWITH "-iphonesimulator.so")',
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=1,
+    )
+
+    # Log stream monitoring was started
+    run_command._stream_app_logs.assert_called_with(
+        first_app_config,
+        popen=log_stream_process,
+        test_mode=True,
+        clean_filter=macOS_log_clean_filter,
+        clean_output=True,
+        stop_func=mock.ANY,
+        log_stream=True,
+    )
+
+
+def test_run_app_test_mode_with_passthrough(run_command, first_app_config, tmp_path):
+    """An iOS App can be started in test mode with passthrough args."""
+    # A valid target device will be selected.
+    run_command.select_target_device = mock.MagicMock(
+        return_value=("2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D", "13.2", "iPhone 11")
+    )
+
+    # Simulator is already booted
+    run_command.get_device_state = mock.MagicMock(return_value=DeviceState.BOOTED)
+
+    # Mock a process ID for the app
+    run_command.tools.subprocess.check_output.return_value = (
+        "com.example.first-app: 1234\n"
+    )
+
+    # Mock the log stream
+    log_stream_process = mock.MagicMock(spec_set=subprocess.Popen)
+    run_command.tools.subprocess.Popen.return_value = log_stream_process
+
+    # Run the app with args.
+    run_command.run_app(
+        first_app_config,
+        test_mode=True,
+        passthrough=["foo", "--bar"],
+    )
+
+    # The correct sequence of commands was issued.
+    run_command.tools.subprocess.run.assert_has_calls(
+        [
+            # Simulator doesn't need to be opened.
+            # Uninstall the old app
+            mock.call(
+                [
+                    "xcrun",
+                    "simctl",
+                    "uninstall",
+                    "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+                    "com.example.first-app",
+                ],
+                check=True,
+            ),
+            # Install the new app
+            mock.call(
+                [
+                    "xcrun",
+                    "simctl",
+                    "install",
+                    "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+                    tmp_path
+                    / "base_path"
+                    / "build"
+                    / "first-app"
+                    / "ios"
+                    / "xcode"
+                    / "build"
+                    / "Debug-iphonesimulator"
+                    / "First App.app",
+                ],
+                check=True,
+            ),
+        ]
+    )
+
+    # Launch the new app
+    run_command.tools.subprocess.check_output.assert_called_once_with(
+        [
+            "xcrun",
+            "simctl",
+            "launch",
+            "2D3503A3-6EB9-4B37-9B17-C7EFEF2FA32D",
+            "com.example.first-app",
+            "foo",
+            "--bar",
         ],
     )
 

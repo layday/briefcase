@@ -1,6 +1,7 @@
 import os
 import subprocess
 import uuid
+from typing import List
 
 from briefcase.commands import CreateCommand, PackageCommand, RunCommand
 from briefcase.config import BaseConfig, parsed_version
@@ -18,8 +19,8 @@ class WindowsMixin:
     def binary_path(self, app):
         return self.bundle_path(app) / self.packaging_root / f"{app.formal_name}.exe"
 
-    def distribution_path(self, app, packaging_format):
-        return self.platform_path / f"{app.formal_name}-{app.version}.msi"
+    def distribution_path(self, app):
+        return self.dist_path / f"{app.formal_name}-{app.version}.msi"
 
 
 class WindowsCreateCommand(CreateCommand):
@@ -76,18 +77,25 @@ class WindowsCreateCommand(CreateCommand):
 
 
 class WindowsRunCommand(RunCommand):
-    def run_app(self, app: BaseConfig, test_mode: bool, **kwargs):
+    def run_app(
+        self,
+        app: BaseConfig,
+        test_mode: bool,
+        passthrough: List[str],
+        **kwargs,
+    ):
         """Start the application.
 
         :param app: The config object for the app
         :param test_mode: Boolean; Is the app running in test mode?
+        :param passthrough: The list of arguments to pass to the app
         """
         # Set up the log stream
         kwargs = self._prepare_app_env(app=app, test_mode=test_mode)
 
         # Start the app in a way that lets us stream the logs
         app_popen = self.tools.subprocess.Popen(
-            [os.fsdecode(self.binary_path(app))],
+            [os.fsdecode(self.binary_path(app))] + passthrough,
             cwd=self.tools.home_path,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -192,7 +200,7 @@ class WindowsPackageCommand(PackageCommand):
                         "-loc",
                         "unicode.wxl",
                         "-o",
-                        self.distribution_path(app, packaging_format="msi"),
+                        self.distribution_path(app),
                         f"{app.app_name}.wixobj",
                         f"{app.app_name}-manifest.wixobj",
                     ],
