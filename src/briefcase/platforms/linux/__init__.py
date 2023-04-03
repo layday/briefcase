@@ -56,6 +56,22 @@ def parse_freedesktop_os_release(content):
 class LinuxMixin:
     platform = "linux"
 
+    def support_package_url(self, support_revision):
+        """The URL of the support package to use for apps of this type.
+
+        Linux builds that use a support package (AppImage, Flatpak) use
+        indygreg's Standalone Python to provide system packages. See
+        https://github.com/indygreg/python-build-standalone for details
+
+        System packages don't use a support package; this is defined by
+        the template, so this method won't be invoked
+        """
+        version, datestamp = support_revision.split("+")
+        return (
+            "https://github.com/indygreg/python-build-standalone/releases/download/"
+            f"{datestamp}/cpython-{support_revision}-{self.tools.host_arch}-unknown-linux-gnu-install_only.tar.gz"
+        )
+
     def vendor_details(self, freedesktop_info):
         """Normalize the identity of the target Linux vendor, version, and base.
 
@@ -129,7 +145,7 @@ class LocalRequirementsMixin:
             self.tools.shutil.rmtree(local_requirements_path)
         self.tools.os.mkdir(local_requirements_path)
 
-        # Iterate over every requirements, looking for local references
+        # Iterate over every requirement, looking for local references
         for requirement in requires:
             if _is_local_requirement(requirement):
                 if Path(requirement).is_dir():
@@ -156,7 +172,7 @@ class LocalRequirementsMixin:
                     try:
                         # Requirement is an existing sdist or wheel file.
                         self.tools.shutil.copy(requirement, local_requirements_path)
-                    except FileNotFoundError as e:
+                    except OSError as e:
                         raise BriefcaseCommandError(
                             f"Unable to find local requirement {requirement}"
                         ) from e
