@@ -4,6 +4,34 @@ Release History
 
 .. towncrier release notes start
 
+0.3.14 (2023-04-12)
+===================
+
+Features
+--------
+
+* Added support for code signing Windows apps. (`#366 <https://github.com/beeware/briefcase/issues/366>`__)
+* The base image used to build AppImages is now user-configurable. (`#947 <https://github.com/beeware/briefcase/issues/947>`__)
+* Support for Arch ``.pkg.tar.zst`` packaging was added to the Linux system backend. (`#1064 <https://github.com/beeware/briefcase/issues/1064>`__)
+* Pygame was added as an explicit option for a GUI toolkit. (`#1125 <https://github.com/beeware/briefcase/issues/1125>`__)
+* AppImage and Flatpak builds now use `indygreg's Python Standalone Builds <https://github.com/indygreg/python-build-standalone>`__ to provide Python support. (`#1132 <https://github.com/beeware/briefcase/issues/1132>`__)
+* BeeWare now has a presence on Mastodon. (`#1142 <https://github.com/beeware/briefcase/issues/1142>`__)
+
+
+Bugfixes
+--------
+
+* When commands produce output that cannot be decoded to Unicode, Briefcase now writes the bytes as hex instead of truncating output or canceling the command altogether. (`#1141 <https://github.com/beeware/briefcase/issues/1141>`__)
+* When ``JAVA_HOME`` contains a path to a file instead of a directory, Briefcase will now warn the user and install an isolated copy of Java instead of logging a ``NotADirectoryError``. (`#1144 <https://github.com/beeware/briefcase/issues/1144>`__)
+* If the Docker ``buildx`` plugin is not installed, users are now directed by Briefcase to install it instead of Docker failing to build the image. (`#1153 <https://github.com/beeware/briefcase/issues/1153>`__)
+
+
+Misc
+----
+
+* `#1133 <https://github.com/beeware/briefcase/issues/1133>`__, `#1138 <https://github.com/beeware/briefcase/issues/1138>`__, `#1139 <https://github.com/beeware/briefcase/issues/1139>`__, `#1140 <https://github.com/beeware/briefcase/issues/1140>`__, `#1147 <https://github.com/beeware/briefcase/issues/1147>`__, `#1148 <https://github.com/beeware/briefcase/issues/1148>`__, `#1149 <https://github.com/beeware/briefcase/issues/1149>`__, `#1150 <https://github.com/beeware/briefcase/issues/1150>`__, `#1151 <https://github.com/beeware/briefcase/issues/1151>`__, `#1156 <https://github.com/beeware/briefcase/issues/1156>`__, `#1162 <https://github.com/beeware/briefcase/issues/1162>`__, `#1163 <https://github.com/beeware/briefcase/issues/1163>`__, `#1168 <https://github.com/beeware/briefcase/issues/1168>`__, `#1169 <https://github.com/beeware/briefcase/issues/1169>`__, `#1170 <https://github.com/beeware/briefcase/issues/1170>`__, `#1171 <https://github.com/beeware/briefcase/issues/1171>`__, `#1172 <https://github.com/beeware/briefcase/issues/1172>`__, `#1173 <https://github.com/beeware/briefcase/issues/1173>`__, `#1177 <https://github.com/beeware/briefcase/issues/1177>`__
+
+
 0.3.13 (2023-03-10)
 ===================
 
@@ -126,7 +154,7 @@ Bugfixes
 * On macOS, Rosetta is now installed automatically if needed. (`#1000
   <https://github.com/beeware/briefcase/issues/1000>`__)
 * The way dependency versions are specified has been modified to make Briefcase
-  as accomodating as possible with end-user environments, but as stable as
+  as accommodating as possible with end-user environments, but as stable as
   possible for development environments. (`#1041
   <https://github.com/beeware/briefcase/issues/1041>`__)
 * To prevent console corruption, dynamic console elements (such as the Wait Bar)
@@ -245,7 +273,7 @@ Bugfixes
   included when an app runs. (#662)
 * Windows MSI installers now install in ``Program Files``, rather than ``Program
   Files (x86)``. (#688)
-* Linuxdeploy plugiuns can now be used when building Linux AppImages; this
+* Linuxdeploy plugins can now be used when building Linux AppImages; this
   resolves many issues with GTK app deployment. (#756)
 * Collision protection has been added to custom support packages that have the
   same name, but are served by different URLs. (#797)
@@ -346,7 +374,7 @@ Bugfixes
 --------
 
 * Existing app packages are now cleared before reinstalling dependencies. (#644)
-* Added binary patcher for linuxtools AppImage to increase compatibility. (#667)
+* Added binary patcher for linuxdeploy AppImage to increase compatibility. (#667)
 
 
 Improved Documentation
@@ -452,7 +480,7 @@ Features
   device model name and unique ID e.g. a Pixel 3a shows up as ``Pixel 3a
   (adbDeviceId)``. (#433)
 * Android apps are now packaged in Android App Bundle format. This allows the
-  Play Store to dynmically build the smallest APK appropriate to a device
+  Play Store to dynamically build the smallest APK appropriate to a device
   installing an app. (#438)
 * PursuedPyBear is now included in the new project wizard. (#440)
 
@@ -512,7 +540,7 @@ Improved Documentation
 ----------------------
 
 * Documented that Windows MSI builds produce per-user installable MSI installers,
-  while still supporting per-maching installs via the CLI. (#382)
+  while still supporting per-machine installs via the CLI. (#382)
 * ``CONTRIBUTING.md`` has been updated to link to Briefcase-specific
   documentation. (#404)
 * Removed references to the ``build-system`` table in ``pyproject.toml``. (#410)
@@ -534,7 +562,7 @@ Features
 0.2.10
 ======
 
-* Improved pre-detection of XCode and related tools
+* Improved pre-detection of Xcode and related tools
 * Improved error handling when starting external tools
 * Fixed iOS simulator integration
 
@@ -543,7 +571,7 @@ Features
 
 * Updated mechanism for starting the iOS simulator
 * Added support for environment markers in ``install_requires``
-* Improved error handling when Wix isn't found
+* Improved error handling when WiX isn't found
 
 0.2.8
 =====
@@ -597,7 +625,7 @@ Features
 =====
 
  * Added ``-s`` option to launch projects
- * Switch to using AWS S3 resources rather than Github Files.
+ * Switch to using AWS S3 resources rather than GitHub Files.
 
 0.1.9
 =====
@@ -607,7 +635,7 @@ Features
 0.1.8
 =====
 
- * Modified template rollout process to avoid API limits on Github.
+ * Modified template rollout process to avoid API limits on GitHub.
 
 0.1.7
 =====

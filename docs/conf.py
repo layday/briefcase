@@ -26,7 +26,12 @@ sys.path.insert(0, os.path.abspath("../src"))
 
 # Add any Sphinx extension module names here, as strings. They can be extensions
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
-extensions = ["sphinx.ext.autodoc", "sphinx.ext.todo", "sphinx_tabs.tabs"]
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.todo",
+    "sphinx_tabs.tabs",
+    "sphinx.ext.intersphinx",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -89,6 +94,14 @@ pygments_style = "sphinx"
 # A list of ignored prefixes for module index sorting.
 # modindex_common_prefix = []
 
+intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+
+# -- Options for link checking -------------------------------------------------
+linkcheck_anchors_ignore = [
+    # Ignore anchor detection/verification for Apple help links
+    # e.g.: https://help.apple.com/xcode/mac/current/#/dev97211aeac
+    "^/dev[0-9a-f]{9}$"
+]
 
 # -- Options for HTML output ---------------------------------------------------
 

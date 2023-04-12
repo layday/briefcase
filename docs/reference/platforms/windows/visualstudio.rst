@@ -54,6 +54,14 @@ Splash Image format
 
 Windows Apps do not support splash screens or installer images.
 
+Additional options
+==================
+
+The following options can be provided at the command line when packaging
+Windows apps.
+
+.. include:: signing_options.rst
+
 Application configuration
 =========================
 
@@ -62,7 +70,7 @@ The following options can be added to the
 file.
 
 ``system_installer``
---------------------
+~~~~~~~~~~~~~~~~~~~~
 
 Controls whether the app will be installed as a per-user or per-machine app.
 Per-machine apps are "system" apps, and require admin permissions to run the
@@ -74,11 +82,11 @@ available to all users. If ``false``, the installer will install as a per-user
 app. If undefined the installer will ask the user for their preference.
 
 ``version_triple``
-------------------
+~~~~~~~~~~~~~~~~~~
 
 Python and Briefcase allow any valid `PEP440 version number
-<https://www.python.org/dev/peps/pep-0440/>`_ as a ``version`` specifier.
-However, MSI installers require a strict integer triple version number. Many
+<https://peps.python.org/pep-0440/>`_ as a ``version`` specifier. However, MSI
+installers require a strict integer triple version number. Many
 PEP440-compliant version numbers, such as "1.2", "1.2.3b3", and "1.2.3.4", are
 invalid for MSI installers.
 
