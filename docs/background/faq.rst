@@ -12,13 +12,13 @@ What platforms does Briefcase support?
 Briefcase currently has support for:
 
 * macOS (producing DMG files, or raw .app files)
-* Linux (producing AppImage files or Flatpaks)
+* Linux (producing system packages, AppImage files or Flatpaks)
 * Windows (producing MSI installers)
 * iOS (producing Xcode projects)
 * Android (producing Gradle projects)
 
 Support for other some other operating systems (e.g., tvOS, watchOS, WearOS, and
-the web) are on our roadmap.
+the web) are on our road map.
 
 Briefcase's platform support is built on a plugin system, so if you want to add
 support for a custom platform, you can do so; or, you can contribute the
@@ -39,7 +39,7 @@ with Briefcase by testing for the existence of the ``Briefcase-Version`` tag::
 Can I use third-party Python packages in my app?
 ------------------------------------------------
 
-Yes! Briefcase uses `pip` to install third-party packages into your app bundle.
+Yes! Briefcase uses ``pip`` to install third-party packages into your app bundle.
 As long as the package is available on PyPI, or you can provide a wheel file for
 the package, it can be added to the ``requires`` declaration in your
 ``pyproject.toml`` file and used by your app at runtime.

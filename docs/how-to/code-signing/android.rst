@@ -15,7 +15,7 @@ app, i.e., has the same author.
 This documentation covers one way to sign your app where the Google Play Store
 maintains the authoritative key for your app. This approach is called `App
 Signing by Google Play
-<https://support.google.com/googleplay/android-developer/answer/7384423>`__.
+<https://support.google.com/googleplay/android-developer/answer/9842756>`__.
 
 You will need to generate a key on your development workstation to sign an app
 package before sending it to the Google Play store. If you use app signing by
@@ -36,7 +36,7 @@ in the filename for the keystore.
 
 Try not to lose this key; make backups if needed. If you do lose this key, you
 can `contact Google Play support to reset it
-<https://support.google.com/googleplay/android-developer/answer/7384423#reset>`__.
+<https://support.google.com/googleplay/android-developer/answer/9842756#reset>`__.
 If you choose not to use app signing by Google Play, it is absolutely essential
 that you not lose this key. For this reason, we recommend using App Signing by
 Google Play.
@@ -45,24 +45,17 @@ Google Play.
 
   .. group-tab:: macOS
 
-    .. code-block:: bash
+    .. code-block:: console
 
       $ mkdir -p ~/.android
       $ ~/Library/Caches/org.beeware.briefcase/tools/java/Contents/Home/bin/keytool -keyalg RSA -deststoretype pkcs12 -genkey -v -storepass android -keystore ~/.android/upload-key-helloworld.jks -keysize 2048 -dname "cn=Upload Key" -alias upload-key -validity 10000
 
   .. group-tab:: Linux
 
-    .. code-block:: bash
+    .. code-block:: console
 
       $ mkdir -p ~/.android
       $ ~/.cache/briefcase/tools/java/bin/keytool -keyalg RSA -deststoretype pkcs12 -genkey -v -storepass android -keystore ~/.android/upload-key-helloworld.jks -keysize 2048 -dname "cn=Upload Key" -alias upload-key -validity 10000
-
-  .. group-tab:: Windows (PowerShell)
-
-    .. code-block:: powershell
-
-      C:\...>If (-Not (Test-Path "$env:HOMEPATH/.android")) { New-Item -Path "$env:HOMEPATH\.android" -ItemType Directory }
-      C:\...>& "$env:LOCALAPPDATA\BeeWare\briefcase\Cache\tools\java\bin\keytool.exe" -keyalg RSA -deststoretype pkcs12 -genkey -v -storepass android -keystore "$env:HOMEPATH\.android\upload-key-helloworld.jks" -keysize 2048 -dname "cn=Upload Key" -alias upload-key -validity 10000
 
   .. group-tab:: Windows (cmd)
 
@@ -71,6 +64,12 @@ Google Play.
       C:\...>IF not exist %HOMEPATH%\.android mkdir %HOMEPATH%\.android
       C:\...>%LOCALAPPDATA%\BeeWare\briefcase\Cache\tools\java\bin\keytool.exe -keyalg RSA -deststoretype pkcs12 -genkey -v -storepass android -keystore %HOMEPATH%\.android\upload-key-helloworld.jks -keysize 2048 -dname "cn=Upload Key" -alias upload-key -validity 10000
 
+  .. group-tab:: Windows (PowerShell)
+
+    .. code-block:: pwsh-session
+
+      PS C:\...> If (-Not (Test-Path "$env:HOMEPATH/.android")) { New-Item -Path "$env:HOMEPATH\.android" -ItemType Directory }
+      PS C:\...> & "$env:LOCALAPPDATA\BeeWare\briefcase\Cache\tools\java\bin\keytool.exe" -keyalg RSA -deststoretype pkcs12 -genkey -v -storepass android -keystore "$env:HOMEPATH\.android\upload-key-helloworld.jks" -keysize 2048 -dname "cn=Upload Key" -alias upload-key -validity 10000
 
 This creates a 2048-bit key and stores it in a Java keystore located in the
 ``.android`` folder within your home folder. Since the key's purpose is to be

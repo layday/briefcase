@@ -41,10 +41,18 @@ class LinuxSystemPassiveMixin(LinuxMixin):
 
     @property
     def use_docker(self):
-        # The system backend doesn't have a literal "--use-docker" option, but
-        # `use_docker` is a useful flag for shared logic purposes, so evaluate
-        # what "use docker" means in terms of target_image.
-        return bool(self.target_image)
+        # The passive mixing doesn't expose the `--target` option, as it can't use
+        # Docker. However, we need the use_docker property to exist so that the
+        # app config can be finalized in the general case.
+        return False
+
+    def parse_options(self, extra):
+        # The passive mixin doesn't expose the `--target` option, but if run infers
+        # build, we need target image to be defined.
+        options = super().parse_options(extra)
+        self.target_image = None
+
+        return options
 
     @property
     def linux_arch(self):
@@ -102,68 +110,30 @@ class LinuxSystemPassiveMixin(LinuxMixin):
     def distribution_path(self, app):
         return self.dist_path / self.distribution_filename(app)
 
-    def add_options(self, parser):
-        super().add_options(parser)
-        parser.add_argument(
-            "--target",
-            dest="target",
-            help="Docker base image tag for the distribution to target for the build (e.g., `ubuntu:jammy`)",
-            required=False,
-        )
-
-    def parse_options(self, extra):
-        """Extract the target_image option."""
-        options = super().parse_options(extra)
-        self.target_image = options.pop("target")
-
-        return options
-
-    def clone_options(self, command):
-        """Clone the target_image option."""
-        super().clone_options(command)
-        self.target_image = command.target_image
-
     def target_glibc_version(self, app):
-        """Determine the glibc version.
-
-        If running in Docker, this is done by interrogating libc.so.6; outside
-        docker, we can use os.confstr().
-        """
-        if self.use_docker:
-            try:
-                output = self.tools.docker.check_output(
-                    ["ldd", "--version"],
-                    image_tag=app.target_image,
-                )
-                # On Debian/Ubuntu, ldd --version will give you output of the form:
-                #
-                #     ldd (Ubuntu GLIBC 2.31-0ubuntu9.9) 2.31
-                #     Copyright (C) 2020 Free Software Foundation, Inc.
-                #     ...
-                #
-                # Other platforms produce output of the form:
-                #
-                #     ldd (GNU libc) 2.36
-                #     Copyright (C) 2020 Free Software Foundation, Inc.
-                #     ...
-                #
-                # Note that the exact text will vary version to version.
-                # Look for the "2.NN" pattern.
-                if match := re.search(r"\d\.\d+", output):
-                    target_glibc = match.group(0)
-                else:
-                    raise BriefcaseCommandError(
-                        "Unable to parse glibc dependency version from version string."
-                    )
-            except subprocess.CalledProcessError:
-                raise BriefcaseCommandError(
-                    "Unable to determine glibc dependency version."
-                )
-
-        else:
-            target_glibc = self.tools.os.confstr("CS_GNU_LIBC_VERSION").split()[1]
-
+        target_glibc = self.tools.os.confstr("CS_GNU_LIBC_VERSION").split()[1]
         return target_glibc
+
+    def app_python_version_tag(self, app):
+        # Use the version of Python that was used to run Briefcase.
+        return self.python_version_tag
+
+    def platform_freedesktop_info(self, app):
+        try:
+            if sys.version_info < (3, 10):
+                # This reproduces the Python 3.10 platform.freedesktop_os_release() function.
+                with self.tools.ETC_OS_RELEASE.open(encoding="utf-8") as f:
+                    freedesktop_info = parse_freedesktop_os_release(f.read())
+            else:
+                freedesktop_info = self.tools.platform.freedesktop_os_release()
+
+        except OSError as e:
+            raise BriefcaseCommandError(
+                "Could not find the /etc/os-release file. "
+                "Is this a FreeDesktop-compliant Linux distribution?"
+            ) from e
+
+        return freedesktop_info
 
     def finalize_app_config(self, app: AppConfig):
         """Finalize app configuration.
@@ -179,45 +149,7 @@ class LinuxSystemPassiveMixin(LinuxMixin):
         :param app: The app configuration to finalize.
         """
         self.logger.info("Finalizing application configuration...", prefix=app.app_name)
-        if self.use_docker:
-            # Preserve the target image on the command line as the app's target
-            app.target_image = self.target_image
-
-            # Ensure that the Docker base image is available.
-            self.logger.info(f"Checking Docker target image {app.target_image}...")
-            self.tools.docker.prepare(app.target_image)
-
-            # Extract release information from the image.
-            output = self.tools.docker.check_output(
-                ["cat", "/etc/os-release"],
-                image_tag=app.target_image,
-            )
-            freedesktop_info = parse_freedesktop_os_release(output)
-        else:
-            try:
-                if sys.version_info < (3, 10):
-                    # This reproduces the Python 3.10
-                    # platform.freedesktop_os_release() function. Yes, this
-                    # should use a context manager, rather than raw file
-                    # open/close operations. If you can get the context manager
-                    # form of this to pass coverage, you get a shiny penny. For
-                    # some reason, coverage generated on Py3.9, but reported on
-                    # Py3.10+, finds a missing branch from the `with` statement
-                    # to the first line after the `except OSError` below.
-                    # Since this is (a) a very simple file I/O sequence, and
-                    # (b) will be removed once we're at a Python3.10 minimum,
-                    # I can live with the Old Skool I/O calls.
-                    f = self.tools.ETC_OS_RELEASE.open(encoding="utf-8")
-                    freedesktop_info = parse_freedesktop_os_release(f.read())
-                    f.close()
-                else:
-                    freedesktop_info = self.tools.platform.freedesktop_os_release()
-
-            except OSError as e:
-                raise BriefcaseCommandError(
-                    "Could not find the /etc/os-release file. "
-                    "Is this a FreeDesktop-compliant Linux distribution?"
-                ) from e
+        freedesktop_info = self.platform_freedesktop_info(app)
 
         # Process the FreeDesktop content to give the vendor, codename and vendor base.
         (
@@ -230,8 +162,6 @@ class LinuxSystemPassiveMixin(LinuxMixin):
             f"Targeting {app.target_vendor}:{app.target_codename} (Vendor base {app.target_vendor_base})"
         )
 
-        # Non-docker builds need an app representation of the target image
-        # for templating purposes.
         if not self.use_docker:
             app.target_image = f"{app.target_vendor}:{app.target_codename}"
 
@@ -267,16 +197,7 @@ class LinuxSystemPassiveMixin(LinuxMixin):
             app.glibc_version = self.target_glibc_version(app)
         self.logger.info(f"Targeting glibc {app.glibc_version}")
 
-        if self.use_docker:
-            # If we're running in Docker, we can't know the Python3 version
-            # before rolling out the template; so we fall back to "3". Later,
-            # once we have a container in which we can run Python, this will be
-            # updated to the actual Python version as part of the
-            # `verify_python` app check.
-            app.python_version_tag = "3"
-        else:
-            # Use the version of Python that was used to run Briefcase.
-            app.python_version_tag = self.python_version_tag
+        app.python_version_tag = self.app_python_version_tag(app)
 
         self.logger.info(f"Targeting Python{app.python_version_tag}")
 
@@ -285,9 +206,90 @@ class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
     # The Mostly Passive mixin verifies that Docker exists and can be run, but
     # doesn't require that we're actually in a Linux environment.
 
+    @property
+    def use_docker(self):
+        # The system backend doesn't have a literal "--use-docker" option, but
+        # `use_docker` is a useful flag for shared logic purposes, so evaluate
+        # what "use docker" means in terms of target_image.
+        return bool(self.target_image)
+
+    def app_python_version_tag(self, app):
+        if self.use_docker:
+            # If we're running in Docker, we can't know the Python3 version
+            # before rolling out the template; so we fall back to "3". Later,
+            # once we have a container in which we can run Python, this will be
+            # updated to the actual Python version as part of the
+            # `verify_python` app check.
+            python_version_tag = "3"
+        else:
+            python_version_tag = super().app_python_version_tag(app)
+        return python_version_tag
+
+    def target_glibc_version(self, app):
+        """Determine the glibc version.
+
+        If running in Docker, this is done by interrogating libc.so.6; outside docker,
+        we can use os.confstr().
+        """
+        if self.use_docker:
+            try:
+                output = self.tools.docker.check_output(
+                    ["ldd", "--version"],
+                    image_tag=app.target_image,
+                )
+                # On Debian/Ubuntu, ldd --version will give you output of the form:
+                #
+                #     ldd (Ubuntu GLIBC 2.31-0ubuntu9.9) 2.31
+                #     Copyright (C) 2020 Free Software Foundation, Inc.
+                #     ...
+                #
+                # Other platforms produce output of the form:
+                #
+                #     ldd (GNU libc) 2.36
+                #     Copyright (C) 2020 Free Software Foundation, Inc.
+                #     ...
+                #
+                # Note that the exact text will vary version to version.
+                # Look for the "2.NN" pattern.
+                if match := re.search(r"\d\.\d+", output):
+                    target_glibc = match.group(0)
+                else:
+                    raise BriefcaseCommandError(
+                        "Unable to parse glibc dependency version from version string."
+                    )
+            except subprocess.CalledProcessError:
+                raise BriefcaseCommandError(
+                    "Unable to determine glibc dependency version."
+                )
+
+        else:
+            target_glibc = super().target_glibc_version(app)
+
+        return target_glibc
+
+    def platform_freedesktop_info(self, app):
+        if self.use_docker:
+            # Preserve the target image on the command line as the app's target
+            app.target_image = self.target_image
+
+            # Ensure that the Docker base image is available.
+            self.logger.info(f"Checking Docker target image {app.target_image}...")
+            self.tools.docker.prepare(app.target_image)
+
+            # Extract release information from the image.
+            output = self.tools.docker.check_output(
+                ["cat", "/etc/os-release"],
+                image_tag=app.target_image,
+            )
+            freedesktop_info = parse_freedesktop_os_release(output)
+        else:
+            freedesktop_info = super().platform_freedesktop_info(app)
+
+        return freedesktop_info
+
     def docker_image_tag(self, app):
         """The Docker image tag for an app."""
-        return f"briefcase/{app.bundle}.{app.app_name.lower()}:{app.target_vendor}-{app.target_codename}"
+        return f"briefcase/{app.bundle_identifier.lower()}:{app.target_vendor}-{app.target_codename}"
 
     def verify_tools(self):
         """If we're using Docker, verify that it is available."""
@@ -295,9 +297,30 @@ class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
         if self.use_docker:
             Docker.verify(tools=self.tools)
 
+    def add_options(self, parser):
+        super().add_options(parser)
+        parser.add_argument(
+            "--target",
+            dest="target",
+            help="Docker base image tag for the distribution to target for the build (e.g., `ubuntu:jammy`)",
+            required=False,
+        )
+
+    def parse_options(self, extra):
+        """Extract the target_image option."""
+        options = super().parse_options(extra)
+        self.target_image = options.pop("target")
+
+        return options
+
+    def clone_options(self, command):
+        """Clone the target_image option."""
+        super().clone_options(command)
+        self.target_image = command.target_image
+
     def verify_python(self, app):
-        """Verify that the version of Python being used to build the app in
-        Docker is compatible with the version being used to run Briefcase.
+        """Verify that the version of Python being used to build the app in Docker is
+        compatible with the version being used to run Briefcase.
 
         Will raise an exception if the Python version is fundamentally
         incompatible (i.e., if Briefcase doesn't support it); any other version
@@ -354,11 +377,11 @@ class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
             )
 
     def verify_system_python(self):
-        """Verify that the Python being used to run Briefcase is the
-        default system python.
+        """Verify that the Python being used to run Briefcase is the default system
+        python.
 
-        Will raise an exception if the system Python isn't an obvious Python3,
-        or the Briefcase Python isn't the same version as the system Python.
+        Will raise an exception if the system Python isn't an obvious Python3, or the
+        Briefcase Python isn't the same version as the system Python.
 
         Requires that the app tools have been verified.
         """
@@ -374,8 +397,8 @@ class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
             )
 
     def _system_requirement_tools(self, app: AppConfig):
-        """Utility method returning the packages and tools needed to verify
-        system requirements.
+        """Utility method returning the packages and tools needed to verify system
+        requirements.
 
         :param app: The app being built.
         :returns: A triple containing (0) The list of package names that must
@@ -962,9 +985,9 @@ class LinuxSystemPackageCommand(LinuxSystemMixin, PackageCommand):
 
                     if filename.is_dir():
                         if app.app_name in path.parts:
-                            f.write(f"%dir /{path}\n")
+                            f.write(f'%dir "/{path}"\n')
                     else:
-                        f.write(f"/{path}\n")
+                        f.write(f'"/{path}"\n')
 
                 # Add the changelog content to the bottom of the spec file.
                 f.write("\n%changelog\n")

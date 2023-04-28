@@ -28,6 +28,11 @@ ensure that you have installed the following:
   - All default packages
   - C++/CLI support for v143 build tools
 
+Briefcase supports two packaging formats for a Windows App:
+
+1. As an MSI installer
+2. As a ZIP file containing all files needed to run the app
+
 Briefcase uses the `WiX Toolset <https://wixtoolset.org/>`__ to build an MSI
 installer for a Windows App. WiX, in turn, requires that .NET Framework 3.5 is
 enabled. To ensure .NET Framework 3.5 is enabled:
@@ -40,7 +45,7 @@ enabled. To ensure .NET Framework 3.5 is enabled:
 Icon format
 ===========
 
-Windows apps installers use multiformat ``.ico`` icons; these icons should
+Windows apps installers use multi-format ``.ico`` icons; these icons should
 contain images in the following sizes:
 
 * 16px

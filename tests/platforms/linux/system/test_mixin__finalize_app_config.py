@@ -3,8 +3,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from briefcase.console import Console, Log
 from briefcase.exceptions import BriefcaseCommandError
 from briefcase.platforms.linux import parse_freedesktop_os_release
+from briefcase.platforms.linux.system import LinuxSystemRunCommand
 
 from ....utils import create_file
 
@@ -102,7 +104,8 @@ def test_nodocker_non_freedesktop(create_command, first_app_config, tmp_path):
 
 
 def test_properties(create_command, first_app_config):
-    """The final app config is the result of merging target properties, plus other derived properties."""
+    """The final app config is the result of merging target properties, plus other
+    derived properties."""
     # Run this test as "docker"; however, the things we're testing aren't docker specific.
     create_command.target_image = "somevendor:surprising"
     create_command.tools.docker = MagicMock()
@@ -301,7 +304,7 @@ def test_properties_no_basevendor_config(create_command, first_app_config):
 
 
 def test_properties_no_vendor(create_command, first_app_config):
-    """If there's no vendor-specific config, the merge succeeds"""
+    """If there's no vendor-specific config, the merge succeeds."""
     # Run this test as "docker"; however, the things we're testing aren't docker specific.
     create_command.target_image = "somevendor:surprising"
     create_command.tools.docker = MagicMock()
@@ -353,7 +356,7 @@ def test_properties_no_vendor(create_command, first_app_config):
 
 
 def test_properties_no_version(create_command, first_app_config):
-    """If there's no version-specific config, the merge succeeds"""
+    """If there's no version-specific config, the merge succeeds."""
     # Run this test as "docker"; however, the things we're testing aren't docker specific.
     create_command.target_image = "somevendor:surprising"
     create_command.tools.docker = MagicMock()
@@ -411,3 +414,46 @@ def test_properties_no_version(create_command, first_app_config):
 
     # Since it's system python, the python version is 3
     assert first_app_config.python_version_tag == "3"
+
+
+def test_passive_mixin(first_app_config, tmp_path):
+    "An app using the PassiveMixin can be finalized"
+    run_command = LinuxSystemRunCommand(
+        logger=Log(),
+        console=Console(),
+        base_path=tmp_path / "base_path",
+        data_path=tmp_path / "briefcase",
+    )
+
+    # Build the app without docker
+    run_command.target_image = None
+    run_command.target_glibc_version = MagicMock(return_value="2.42")
+
+    os_release = "\n".join(
+        [
+            "ID=somevendor",
+            "VERSION_CODENAME=surprising",
+            "ID_LIKE=debian",
+        ]
+    )
+    if sys.version_info >= (3, 10):
+        # mock platform.freedesktop_os_release()
+        run_command.tools.platform.freedesktop_os_release = MagicMock(
+            return_value=parse_freedesktop_os_release(os_release)
+        )
+    else:
+        # For Pre Python3.10, mock the /etc/release file
+        create_file(tmp_path / "os-release", os_release)
+        run_command.tools.ETC_OS_RELEASE = tmp_path / "os-release"
+
+    # Finalize the app config
+    run_command.finalize_app_config(first_app_config)
+
+    # The app's image, vendor and codename have been constructed from the target image
+    assert first_app_config.target_image == "somevendor:surprising"
+    assert first_app_config.target_vendor == "somevendor"
+    assert first_app_config.target_codename == "surprising"
+    assert first_app_config.target_vendor_base == "debian"
+
+    # For tests of other properties merged in finalization, see
+    # test_properties

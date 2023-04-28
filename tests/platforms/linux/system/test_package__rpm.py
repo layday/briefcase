@@ -76,7 +76,7 @@ def first_app_rpm(first_app, tmp_path):
 
 
 def test_verify_no_docker(monkeypatch, package_command, first_app_rpm):
-    """If not using docker, existence of rpmbuild is verified"""
+    """If not using docker, existence of rpmbuild is verified."""
     # Mock not using docker
     package_command.target_image = None
 
@@ -95,7 +95,7 @@ def test_verify_no_docker(monkeypatch, package_command, first_app_rpm):
 
 
 def test_verify_rpmbuild_missing(monkeypatch, package_command, first_app_rpm):
-    """If rpmbuild isn't installed, an error is raised"""
+    """If rpmbuild isn't installed, an error is raised."""
     # Mock not using docker
     package_command.target_image = None
 
@@ -118,7 +118,7 @@ def test_verify_rpmbuild_missing(monkeypatch, package_command, first_app_rpm):
 
 
 def test_verify_docker(monkeypatch, package_command, first_app_rpm):
-    """If using Docker, no tool checks are needed"""
+    """If using Docker, no tool checks are needed."""
     # Mock using docker
     package_command.target_image = "somevendor:surprising"
 
@@ -204,21 +204,21 @@ def test_rpm_package(package_command, first_app_rpm, tmp_path):
                 "cp -r usr %{buildroot}/usr",
                 "",
                 "%files",
-                "/usr/bin/first-app",
-                "%dir /usr/lib/first-app",
-                "%dir /usr/lib/first-app/app",
-                "/usr/lib/first-app/app/support.so",
-                "%dir /usr/lib/first-app/app_packages",
-                "%dir /usr/lib/first-app/app_packages/firstlib",
-                "/usr/lib/first-app/app_packages/firstlib/first.so",
-                "/usr/lib/first-app/app_packages/firstlib/first.so.1.0",
-                "%dir /usr/lib/first-app/app_packages/secondlib",
-                "/usr/lib/first-app/app_packages/secondlib/second_a.so",
-                "/usr/lib/first-app/app_packages/secondlib/second_b.so",
-                "%dir /usr/share/doc/first-app",
-                "/usr/share/doc/first-app/UserManual",
-                "/usr/share/doc/first-app/license",
-                "/usr/share/man/man1/first-app.1.gz",
+                '"/usr/bin/first-app"',
+                '%dir "/usr/lib/first-app"',
+                '%dir "/usr/lib/first-app/app"',
+                '"/usr/lib/first-app/app/support.so"',
+                '%dir "/usr/lib/first-app/app_packages"',
+                '%dir "/usr/lib/first-app/app_packages/firstlib"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so.1.0"',
+                '%dir "/usr/lib/first-app/app_packages/secondlib"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_a.so"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_b.so"',
+                '%dir "/usr/share/doc/first-app"',
+                '"/usr/share/doc/first-app/UserManual"',
+                '"/usr/share/doc/first-app/license"',
+                '"/usr/share/man/man1/first-app.1.gz"',
                 "",
                 "%changelog",
                 "First App Changelog",
@@ -352,21 +352,21 @@ def test_rpm_re_package(package_command, first_app_rpm, tmp_path):
                 "cp -r usr %{buildroot}/usr",
                 "",
                 "%files",
-                "/usr/bin/first-app",
-                "%dir /usr/lib/first-app",
-                "%dir /usr/lib/first-app/app",
-                "/usr/lib/first-app/app/support.so",
-                "%dir /usr/lib/first-app/app_packages",
-                "%dir /usr/lib/first-app/app_packages/firstlib",
-                "/usr/lib/first-app/app_packages/firstlib/first.so",
-                "/usr/lib/first-app/app_packages/firstlib/first.so.1.0",
-                "%dir /usr/lib/first-app/app_packages/secondlib",
-                "/usr/lib/first-app/app_packages/secondlib/second_a.so",
-                "/usr/lib/first-app/app_packages/secondlib/second_b.so",
-                "%dir /usr/share/doc/first-app",
-                "/usr/share/doc/first-app/UserManual",
-                "/usr/share/doc/first-app/license",
-                "/usr/share/man/man1/first-app.1.gz",
+                '"/usr/bin/first-app"',
+                '%dir "/usr/lib/first-app"',
+                '%dir "/usr/lib/first-app/app"',
+                '"/usr/lib/first-app/app/support.so"',
+                '%dir "/usr/lib/first-app/app_packages"',
+                '%dir "/usr/lib/first-app/app_packages/firstlib"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so.1.0"',
+                '%dir "/usr/lib/first-app/app_packages/secondlib"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_a.so"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_b.so"',
+                '%dir "/usr/share/doc/first-app"',
+                '"/usr/share/doc/first-app/UserManual"',
+                '"/usr/share/doc/first-app/license"',
+                '"/usr/share/man/man1/first-app.1.gz"',
                 "",
                 "%changelog",
                 "First App Changelog",
@@ -521,21 +521,21 @@ def test_rpm_package_extra_requirements(package_command, first_app_rpm, tmp_path
                 "cp -r usr %{buildroot}/usr",
                 "",
                 "%files",
-                "/usr/bin/first-app",
-                "%dir /usr/lib/first-app",
-                "%dir /usr/lib/first-app/app",
-                "/usr/lib/first-app/app/support.so",
-                "%dir /usr/lib/first-app/app_packages",
-                "%dir /usr/lib/first-app/app_packages/firstlib",
-                "/usr/lib/first-app/app_packages/firstlib/first.so",
-                "/usr/lib/first-app/app_packages/firstlib/first.so.1.0",
-                "%dir /usr/lib/first-app/app_packages/secondlib",
-                "/usr/lib/first-app/app_packages/secondlib/second_a.so",
-                "/usr/lib/first-app/app_packages/secondlib/second_b.so",
-                "%dir /usr/share/doc/first-app",
-                "/usr/share/doc/first-app/UserManual",
-                "/usr/share/doc/first-app/license",
-                "/usr/share/man/man1/first-app.1.gz",
+                '"/usr/bin/first-app"',
+                '%dir "/usr/lib/first-app"',
+                '%dir "/usr/lib/first-app/app"',
+                '"/usr/lib/first-app/app/support.so"',
+                '%dir "/usr/lib/first-app/app_packages"',
+                '%dir "/usr/lib/first-app/app_packages/firstlib"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so"',
+                '"/usr/lib/first-app/app_packages/firstlib/first.so.1.0"',
+                '%dir "/usr/lib/first-app/app_packages/secondlib"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_a.so"',
+                '"/usr/lib/first-app/app_packages/secondlib/second_b.so"',
+                '%dir "/usr/share/doc/first-app"',
+                '"/usr/share/doc/first-app/UserManual"',
+                '"/usr/share/doc/first-app/license"',
+                '"/usr/share/man/man1/first-app.1.gz"',
                 "",
                 "%changelog",
                 "First App Changelog",

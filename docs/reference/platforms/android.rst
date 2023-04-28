@@ -37,29 +37,29 @@ and device display densities:
 * ``normal`` (typical phones; up to 480 density-independent pixels):
 
   * 320px
-  * 480px (hdpi)
-  * 640px (xhdpi)
-  * 1280px (xxxhdpi)
+  * 480px (``hdpi``)
+  * 640px (``xhdpi``)
+  * 1280px (``xxxhdpi``)
 
 * ``large`` (large format phones, or phone-tablet "phablet" hybrids; up to
   720 density-independent pixels):
 
   * 480px
-  * 720px (hdpi)
-  * 960px (xhdpi)
-  * 1920px (xxxhdpi)
+  * 720px (``hdpi``)
+  * 960px (``xhdpi``)
+  * 1920px (``xxxhdpi``)
 
 * ``xlarge`` (tablets; larger than 720 density-independent pixels)
 
   * 720px
-  * 1080px (hdpi)
-  * 1440px (xhdpi)
-  * 2880px (xxxhdpi)
+  * 1080px (``hdpi``)
+  * 1440px (``xhdpi``)
+  * 2880px (``xxxhdpi``)
 
 Consult `the Android documentation
 <https://developer.android.com/guide/topics/large-screens/support-different-screen-sizes>`__
 for more details on devices, sizes, and display densities. `This list of common
-devices with their sizes and DPI <https://material.io/resources/devices/>`__
+devices with their sizes and DPI <https://m2.material.io/resources/devices/>`__
 may also be helpful.
 
 You can specify a background color for the splash screen using the
@@ -86,10 +86,10 @@ number with the build number. It does this by using each part of the main
 version number (padded to 3 digits if necessary) and the build number as 2
 significant digits of the final version code:
 
-  * Version ``1.0``, build 1 becomes ``1000001`` (i.e, `1`, `00`, `00`, `01`)
-  * Version ``1.2``, build 37 becomes ``1020037`` (i.e., `1`, `02`, `00`, `37`)
-  * Version ``1.2.37``, build 42 becomes ``1023742`` (i.e, `1`, `02`, `37`, `42`)
-  * Version ``2020.6``, build 4 becomes ``2020060004`` (i.e., `2020`, `06`, `00`, `04`)
+  * Version ``1.0``, build 1 becomes ``1000001`` (i.e, ``1``, ``00``, ``00``, ``01``)
+  * Version ``1.2``, build 37 becomes ``1020037`` (i.e., ``1``, ``02``, ``00``, ``37``)
+  * Version ``1.2.37``, build 42 becomes ``1023742`` (i.e, ``1``, ``02``, ``37``, ``42``)
+  * Version ``2020.6``, build 4 becomes ``2020060004`` (i.e., ``2020``, ``06``, ``00``, ``04``)
 
 If you want to manually specify a version code by defining ``version_code`` in
 your application configuration. If provided, this value will override any
@@ -113,7 +113,9 @@ The device or emulator to target. Can be specified as:
 * a device ID (a hexadecimal identifier associated with a specific hardware device);
   or
 * a JSON dictionary specifying the properties of a device that will be created.
-  This dictionary must have, at a minimum, an AVD name::
+  This dictionary must have, at a minimum, an AVD name:
+
+.. code-block:: console
 
      $ briefcase run -d '{"avd":"new-device"}'
 
