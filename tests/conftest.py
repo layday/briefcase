@@ -1,10 +1,9 @@
 import inspect
 import subprocess
-from unittest.mock import ANY, MagicMock
+import time
+from unittest.mock import ANY
 
-import git as git_
 import pytest
-from git import exc as git_exceptions
 
 from briefcase.config import AppConfig
 from briefcase.console import Printer
@@ -18,15 +17,9 @@ def pytest_sessionfinish(session, exitstatus):
     Printer.dev_null.close()
 
 
-@pytest.fixture
-def mock_git():
-    git = MagicMock(spec_set=git_)
-    git.exc = git_exceptions
-    return git
-
-
-# alias print() to allow non-briefcase code to use it
+# alias so fixtures can still use them
 _print = print
+_sleep = time.sleep
 
 
 def monkeypatched_print(*args, **kwargs):
@@ -45,8 +38,14 @@ def monkeypatched_print(*args, **kwargs):
 
 @pytest.fixture(autouse=True)
 def no_print(monkeypatch):
-    """Replace builtin print function for ALL tests."""
+    """Replace builtin ``print()`` for ALL tests."""
     monkeypatch.setattr("builtins.print", monkeypatched_print)
+
+
+@pytest.fixture
+def sleep_zero(monkeypatch):
+    """Replace all calls to ``time.sleep(x)`` with ``time.sleep(0)``."""
+    monkeypatch.setattr(time, "sleep", lambda x: _sleep(0))
 
 
 @pytest.fixture

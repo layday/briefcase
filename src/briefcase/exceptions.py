@@ -70,8 +70,8 @@ class UnsupportedHostError(BriefcaseError):
 
 
 class BriefcaseCommandError(BriefcaseError):
-    def __init__(self, msg):
-        super().__init__(error_code=200)
+    def __init__(self, msg, skip_logfile=False):
+        super().__init__(error_code=200, skip_logfile=skip_logfile)
         self.msg = msg
 
     def __str__(self):
@@ -109,6 +109,11 @@ class NonManagedToolError(BriefcaseCommandError):
         super().__init__(msg=f"{tool!r} is using an install that is user managed.")
 
 
+class UpgradeToolError(BriefcaseCommandError):
+    def __init__(self, error_msg):
+        super().__init__(msg=error_msg, skip_logfile=True)
+
+
 class TemplateUnsupportedVersion(BriefcaseCommandError):
     def __init__(self, briefcase_version):
         self.briefcase_version = briefcase_version
@@ -140,6 +145,11 @@ class InvalidSupportPackage(BriefcaseCommandError):
     def __init__(self, filename):
         self.filename = filename
         super().__init__(f"Unable to unpack support package {filename!r}")
+
+
+class MissingAppMetadata(BriefcaseCommandError):
+    def __init__(self, app_bundle_path):
+        super().__init__(f"Unable to find '{app_bundle_path / 'briefcase.toml'}'")
 
 
 class MissingSupportPackage(BriefcaseCommandError):

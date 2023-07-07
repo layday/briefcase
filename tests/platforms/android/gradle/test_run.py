@@ -20,6 +20,8 @@ from briefcase.platforms.android.gradle import (
     android_log_clean_filter,
 )
 
+from ....utils import create_file
+
 
 @pytest.fixture
 def jdk():
@@ -86,6 +88,7 @@ def test_device_option(run_command):
         "update": False,
         "update_requirements": False,
         "update_resources": False,
+        "update_support": False,
         "no_update": False,
         "test_mode": False,
         "passthrough": [],
@@ -106,6 +109,7 @@ def test_extra_emulator_args_option(run_command):
         "update": False,
         "update_requirements": False,
         "update_resources": False,
+        "update_support": False,
         "no_update": False,
         "test_mode": False,
         "passthrough": [],
@@ -124,12 +128,38 @@ def test_shutdown_on_exit_option(run_command):
         "update": False,
         "update_requirements": False,
         "update_resources": False,
+        "update_support": False,
         "no_update": False,
         "test_mode": False,
         "passthrough": [],
         "extra_emulator_args": None,
         "shutdown_on_exit": True,
     }
+
+
+def test_unsupported_template_version(run_command, first_app_generated):
+    """Error raised if template's target version is not supported."""
+    run_command.apps = {"first-app": first_app_generated}
+
+    # Skip verifying tools
+    run_command.verify_tools = mock.MagicMock()
+
+    # Mock the build command previously called
+    create_file(run_command.binary_path(first_app_generated), content="")
+
+    run_command.verify_app = mock.MagicMock(wraps=run_command.verify_app)
+
+    run_command._briefcase_toml.update(
+        {first_app_generated: {"briefcase": {"target_epoch": "0.3.16"}}}
+    )
+
+    with pytest.raises(
+        BriefcaseCommandError,
+        match="The app template used to generate this app is not compatible",
+    ):
+        run_command(first_app_generated.app_name)
+
+    run_command.verify_app.assert_called_once_with(first_app_generated)
 
 
 def test_run_existing_device(run_command, first_app_config):
@@ -487,24 +517,32 @@ def test_run_idle_device(run_command, first_app_config):
 
 def test_log_file_extra(run_command, monkeypatch):
     """Android commands register a log file extra to list SDK packages."""
-    verify = mock.MagicMock(return_value=run_command.tools.android_sdk)
-    monkeypatch.setattr(AndroidSDK, "verify", verify)
+    mock_android_sdk_verify = mock.MagicMock(return_value=run_command.tools.android_sdk)
+    monkeypatch.setattr(AndroidSDK, "verify", mock_android_sdk_verify)
     monkeypatch.setattr(AndroidSDK, "verify_emulator", mock.MagicMock())
 
     # Even if one command triggers another, the sdkmanager should only be run once.
     run_command.update_command.verify_tools()
     run_command.verify_tools()
 
+    # Android SDK tool was verified
+    mock_android_sdk_verify.assert_has_calls([mock.call(tools=run_command.tools)] * 2)
+    assert isinstance(run_command.tools.android_sdk, AndroidSDK)
+
+    # list_packages() was not called
+    run_command.tools.subprocess.check_output.assert_not_called()
+
+    # list_packages() is called when saving the log
+    run_command.tools.logger.save_log = True
+    run_command.tools.logger.save_log_to_file(run_command)
+
     sdk_manager = "/path/to/android_sdk/cmdline-tools/latest/bin/sdkmanager"
     if platform.system() == "Windows":
         sdk_manager += ".bat"
-
-    run_command.tools.logger.save_log = True
-    run_command.tools.subprocess.check_output.assert_not_called()
-    run_command.tools.logger.save_log_to_file(run_command)
     run_command.tools.subprocess.check_output.assert_called_once_with(
         [normpath(sdk_manager), "--list_installed"],
         env={
+            "ANDROID_HOME": str(run_command.tools.android_sdk.root_path),
             "ANDROID_SDK_ROOT": str(run_command.tools.android_sdk.root_path),
             "JAVA_HOME": str(run_command.tools.java.java_home),
         },

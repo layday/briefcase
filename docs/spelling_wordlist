@@ -16,8 +16,10 @@ cryptographic
 dev
 dialogs
 distributable
+Django
 dmg
 Dockerfile
+dr
 embeddable
 executables
 Flathub
@@ -31,6 +33,7 @@ gtk
 hoc
 hostname
 installable
+iOS
 jarsigner
 keychain
 Keychain
@@ -66,9 +69,11 @@ subdirectories
 subdirectory
 submodule
 subprocesses
+tl
 toml
-Towncrier
+towncrier
 TTY
+tox
 tvOS
 untrusted
 VisualStudio

@@ -24,13 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # This permission is required for trusted publishing.
+      id-token: write
     steps:
       - name: Set build variables
         run: |
           echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Set up Python
-        uses: actions/setup-python@v4.6.0
+        uses: actions/setup-python@v4.6.1
         with:
           python-version: "3.x"
 
@@ -62,4 +64,3 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          password: ${{ secrets.TEST_PYPI_PASSWORD }}

@@ -7,17 +7,27 @@ from cookiecutter.main import cookiecutter
 from briefcase.commands import CreateCommand
 from briefcase.config import AppConfig
 from briefcase.console import Console, Log
+from briefcase.integrations.base import Tool
 from briefcase.integrations.subprocess import Subprocess
 
 from ...utils import DummyConsole, create_file
+
+
+@pytest.fixture
+def monkeypatch_tool_host_os(monkeypatch):
+    """Add testing host OS as supported for tools that support all platforms."""
+    monkeypatch.setattr(
+        Tool,
+        "supported_host_os",
+        Tool.supported_host_os.union({"c64"}),
+    )
 
 
 class DefaultCreateCommand(CreateCommand):
     # An instance of CreateCommand that inherits the default
     # behavior of create handling.
 
-    # Two methods that are required by the interface, but are not needed
-    # for these tests.
+    # method is required by the interface, but are not needed for these tests.
     def binary_path(self, app):
         return NotImplementedError()
 
@@ -91,6 +101,10 @@ class TrackingCreateCommand(DummyCreateCommand):
 
         self.actions = []
 
+    def briefcase_toml(self, app):
+        # default any app to an empty `briefcase.toml`
+        return self._briefcase_toml.get(app, {})
+
     def verify_host(self):
         super().verify_host()
         self.actions.append(("verify-host",))
@@ -102,6 +116,10 @@ class TrackingCreateCommand(DummyCreateCommand):
     def finalize_app_config(self, app):
         super().finalize_app_config(app=app)
         self.actions.append(("finalize-app-config", app.app_name))
+
+    def verify_app_template(self, app):
+        super().verify_app_template(app=app)
+        self.actions.append(("verify-app-template", app.app_name))
 
     def verify_app_tools(self, app):
         super().verify_app_tools(app=app)
@@ -132,7 +150,7 @@ class TrackingCreateCommand(DummyCreateCommand):
 
 
 @pytest.fixture
-def create_command(tmp_path, mock_git):
+def create_command(tmp_path, mock_git, monkeypatch_tool_host_os):
     return DummyCreateCommand(
         base_path=tmp_path / "base_path",
         data_path=tmp_path / "data",
@@ -142,7 +160,7 @@ def create_command(tmp_path, mock_git):
 
 
 @pytest.fixture
-def tracking_create_command(tmp_path, mock_git):
+def tracking_create_command(tmp_path, mock_git, monkeypatch_tool_host_os):
     return TrackingCreateCommand(
         git=mock_git,
         base_path=tmp_path / "base_path",
@@ -183,11 +201,10 @@ def myapp():
 @pytest.fixture
 def bundle_path(myapp, tmp_path):
     # Return the bundle path for the app; however, as a side effect,
-    # ensure that the app, app_packages and support target directories
+    # ensure that the app, and app_packages target directories
     # exist, and the briefcase index file has been created.
     bundle_path = tmp_path / "base_path" / "build" / myapp.app_name / "tester" / "dummy"
     (bundle_path / "path" / "to" / "app").mkdir(parents=True, exist_ok=True)
-    (bundle_path / "path" / "to" / "support").mkdir(parents=True, exist_ok=True)
 
     return bundle_path
 

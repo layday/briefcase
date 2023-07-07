@@ -4,6 +4,7 @@ from zipfile import ZipFile
 
 import pytest
 
+import briefcase.platforms.windows
 from briefcase.console import Console, Log
 from briefcase.exceptions import BriefcaseCommandError
 from briefcase.integrations.subprocess import Subprocess
@@ -22,6 +23,7 @@ def package_command(tmp_path):
         base_path=tmp_path / "base_path",
         data_path=tmp_path / "briefcase",
     )
+    command.tools.host_os = "Windows"
     command.tools.subprocess = mock.MagicMock(spec_set=Subprocess)
     command.tools.wix = WiX(command.tools, wix_home=tmp_path / "wix")
     command.tools.windows_sdk = WindowsSDK(
@@ -67,26 +69,51 @@ def test_package_formats(package_command):
     assert package_command.default_packaging_format == "msi"
 
 
-def test_verify(package_command):
+def test_verify(package_command, monkeypatch):
     """Verifying on Windows creates a WiX wrapper."""
     # prime Command to _not_ need Windows SDK
     package_command._windows_sdk_needed = False
 
+    mock_wix_verify = mock.MagicMock(wraps=WiX.verify)
+    monkeypatch.setattr(
+        briefcase.platforms.windows.WiX,
+        "verify",
+        mock_wix_verify,
+    )
+
     package_command.verify_tools()
 
-    # No error and an SDK wrapper is created
+    # WiX tool was verified
+    mock_wix_verify.assert_called_once_with(tools=package_command.tools)
     assert isinstance(package_command.tools.wix, WiX)
 
 
-def test_verify_with_signing(package_command):
+def test_verify_with_signing(package_command, monkeypatch):
     """Verifying on Windows creates WiX and WindowsSDK wrappers when code signing."""
     # prime Command to need Windows SDK
     package_command._windows_sdk_needed = True
 
+    mock_windows_sdk_verify = mock.MagicMock(wraps=WindowsSDK.verify)
+    monkeypatch.setattr(
+        briefcase.platforms.windows.WindowsSDK,
+        "verify",
+        mock_windows_sdk_verify,
+    )
+
+    mock_wix_verify = mock.MagicMock(wraps=WiX.verify)
+    monkeypatch.setattr(
+        briefcase.platforms.windows.WiX,
+        "verify",
+        mock_wix_verify,
+    )
+
     package_command.verify_tools()
 
-    # No error and SDK wrappers are created
+    # WiX tool was verified
+    mock_wix_verify.assert_called_once_with(tools=package_command.tools)
     assert isinstance(package_command.tools.wix, WiX)
+    # WindowsSDK tool was verified
+    mock_windows_sdk_verify.assert_called_once_with(tools=package_command.tools)
     assert isinstance(package_command.tools.windows_sdk, WindowsSDK)
 
 
@@ -94,6 +121,7 @@ def test_verify_with_signing(package_command):
     "cli_args, signing_options, is_sdk_needed",
     [
         ([], {}, False),
+        (["--adhoc-sign"], dict(adhoc_sign=True), False),
         (["--file-digest", "sha2000"], dict(file_digest="sha2000"), False),
         (["-i", "asdf"], dict(identity="asdf"), True),
         (["--identity", "asdf"], dict(identity="asdf"), True),
@@ -158,7 +186,6 @@ def test_parse_options(package_command, cli_args, signing_options, is_sdk_needed
         timestamp_digest="sha256",
         adhoc_sign=False,
         packaging_format="msi",
-        sign_app=True,
         update=False,
     )
     expected_options = {**default_options, **signing_options}
@@ -169,10 +196,17 @@ def test_parse_options(package_command, cli_args, signing_options, is_sdk_needed
     assert package_command._windows_sdk_needed is is_sdk_needed
 
 
-def test_package_msi(package_command, first_app_config, tmp_path):
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(),  # Default behavior (adhoc signing)
+        {"adhoc_sign": True},  # Explicit adhoc signing
+    ],
+)
+def test_package_msi(package_command, first_app_config, kwargs, tmp_path):
     """A Windows app can be packaged as an MSI."""
 
-    package_command.package_app(first_app_config)
+    package_command.package_app(first_app_config, **kwargs)
 
     assert package_command.tools.subprocess.run.mock_calls == [
         # Collect manifest
@@ -239,11 +273,21 @@ def test_package_msi(package_command, first_app_config, tmp_path):
     ]
 
 
-def test_package_zip(package_command_with_files, first_app_config, tmp_path):
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        dict(),  # Default behavior (adhoc signing)
+        {"adhoc_sign": True},  # Explicit adhoc signing
+    ],
+)
+def test_package_zip(package_command_with_files, first_app_config, kwargs, tmp_path):
     """A Windows app can be packaged as a zip file."""
 
     first_app_config.packaging_format = "zip"
-    package_command_with_files.package_app(first_app_config)
+    package_command_with_files.package_app(first_app_config, **kwargs)
+
+    # No signing was performed
+    assert package_command_with_files.tools.subprocess.run.mock_calls == []
 
     archive_file = tmp_path / "base_path" / "dist" / "First App-0.0.1.zip"
     source_folders_and_files = (

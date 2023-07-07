@@ -1,6 +1,6 @@
-from typing import Optional
+from __future__ import annotations
 
-from briefcase.config import BaseConfig
+from briefcase.config import AppConfig
 from briefcase.exceptions import BriefcaseCommandError
 
 from .base import BaseCommand, full_options
@@ -14,7 +14,7 @@ class BuildCommand(BaseCommand):
         self._add_update_options(parser, context_label=" before building")
         self._add_test_options(parser, context_label="Build")
 
-    def build_app(self, app: BaseConfig, **options):
+    def build_app(self, app: AppConfig, **options):
         """Build an application.
 
         :param app: The application to build
@@ -23,24 +23,26 @@ class BuildCommand(BaseCommand):
 
     def _build_app(
         self,
-        app: BaseConfig,
+        app: AppConfig,
         update: bool,
         update_requirements: bool,
         update_resources: bool,
+        update_support: bool,
         no_update: bool,
         test_mode: bool,
         **options,
-    ):
+    ) -> dict | None:
         """Internal method to invoke a build on a single app. Ensures the app exists,
         and has been updated (if requested) before attempting to issue the actual build
         command.
 
         :param app: The application to build
         :param update: Should the application be updated before building?
-        :param update_requirements: Should the application requirements be
-            updated before building?
-        :param update_resources: Should the application resources be updated
+        :param update_requirements: Should the application requirements be updated
             before building?
+        :param update_resources: Should the application resources be updated before
+            building?
+        :param update_support: Should the application support be updated?
         :param no_update: Should automated updates be disabled?
         :param test_mode: Is the app being build in test mode?
         """
@@ -50,6 +52,7 @@ class BuildCommand(BaseCommand):
             update  # An explicit update has been requested
             or update_requirements  # An explicit update of requirements has been requested
             or update_resources  # An explicit update of resources has been requested
+            or update_support  # An explicit update of app support has been requested
             or (
                 test_mode and not no_update
             )  # Test mode, but updates have not been disabled
@@ -58,13 +61,14 @@ class BuildCommand(BaseCommand):
                 app,
                 update_requirements=update_requirements,
                 update_resources=update_resources,
+                update_support=update_support,
                 test_mode=test_mode,
                 **options,
             )
         else:
             state = None
 
-        self.verify_app_tools(app)
+        self.verify_app(app)
 
         state = self.build_app(app, test_mode=test_mode, **full_options(state, options))
 
@@ -77,14 +81,15 @@ class BuildCommand(BaseCommand):
 
     def __call__(
         self,
-        app: Optional[BaseConfig] = None,
+        app: AppConfig | None = None,
         update: bool = False,
         update_requirements: bool = False,
         update_resources: bool = False,
+        update_support: bool = False,
         no_update: bool = False,
         test_mode: bool = False,
         **options,
-    ):
+    ) -> dict | None:
         # Has the user requested an invalid set of options?
         # This can't be done with argparse, because it isn't a simple mutually exclusive group.
         if no_update:
@@ -100,6 +105,10 @@ class BuildCommand(BaseCommand):
                 raise BriefcaseCommandError(
                     "Cannot specify both --update-resources and --no-update"
                 )
+            if update_support:
+                raise BriefcaseCommandError(
+                    "Cannot specify both --update-support and --no-update"
+                )
 
         # Confirm host compatibility, that all required tools are available,
         # and that the app configuration is finalized.
@@ -111,6 +120,7 @@ class BuildCommand(BaseCommand):
                 update=update,
                 update_requirements=update_requirements,
                 update_resources=update_resources,
+                update_support=update_support,
                 no_update=no_update,
                 test_mode=test_mode,
                 **options,
@@ -123,6 +133,7 @@ class BuildCommand(BaseCommand):
                     update=update,
                     update_requirements=update_requirements,
                     update_resources=update_resources,
+                    update_support=update_support,
                     no_update=no_update,
                     test_mode=test_mode,
                     **full_options(state, options),

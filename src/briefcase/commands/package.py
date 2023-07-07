@@ -1,7 +1,8 @@
-from abc import abstractmethod
-from typing import Optional
+from __future__ import annotations
 
-from briefcase.config import BaseConfig
+from abc import abstractmethod
+
+from briefcase.config import AppConfig
 
 from .base import BaseCommand, full_options
 
@@ -9,6 +10,9 @@ from .base import BaseCommand, full_options
 class PackageCommand(BaseCommand):
     command = "package"
     description = "Package an app for distribution."
+
+    ADHOC_SIGN_HELP = "Ignored; signing is not supported."
+    IDENTITY_HELP = "Ignored; signing is not supported."
 
     @property
     def packaging_formats(self):
@@ -22,19 +26,17 @@ class PackageCommand(BaseCommand):
     def distribution_path(self, app):
         """The path to the distributable artefact for the app.
 
-        Requires that the packaging format has been annotated onto
-        the application definition
+        Requires that the packaging format has been annotated onto the application
+        definition
 
-        This is the single file that should be uploaded for distribution.
-        This may be the binary (if the binary is a self-contained executable);
-        however, if the output format produces an installer, it will be the
-        path to the installer.
+        This is the single file that should be uploaded for distribution. This may be
+        the binary (if the binary is a self-contained executable); however, if the
+        output format produces an installer, it will be the path to the installer.
 
         :param app: The app config
         """
-        ...
 
-    def package_app(self, app: BaseConfig, **options):
+    def package_app(self, app: AppConfig, **options):
         """Package an application.
 
         :param app: The application to package
@@ -43,11 +45,11 @@ class PackageCommand(BaseCommand):
 
     def _package_app(
         self,
-        app: BaseConfig,
+        app: AppConfig,
         update: bool,
         packaging_format: str,
         **options,
-    ):
+    ) -> dict | None:
         """Internal method to invoke packaging on a single app. Ensures the app exists,
         and has been updated (if requested) before attempting to issue the actual
         package command.
@@ -70,6 +72,7 @@ class PackageCommand(BaseCommand):
                 app,
                 update_resources=True,
                 update_requirements=True,
+                update_support=True,
                 **options,
             )
             state = self.build_command(app, **full_options(state, options))
@@ -81,9 +84,9 @@ class PackageCommand(BaseCommand):
         # Annotate the packaging format onto the app
         app.packaging_format = packaging_format
 
-        # Verify the app tools, which will do final confirmation that we can
+        # Verify the app, which will do final confirmation that we can
         # package in the requested format.
-        self.verify_app_tools(app)
+        self.verify_app(app)
 
         # If the distribution artefact already exists, remove it.
         if self.distribution_path(app).exists():
@@ -114,31 +117,28 @@ class PackageCommand(BaseCommand):
             default=self.default_packaging_format,
             choices=self.packaging_formats,
         )
-        parser.add_argument(
-            "--no-sign",
-            dest="sign_app",
-            help="Disable code signing of the app.",
-            action="store_false",
-        )
-        parser.add_argument(
+
+        # --adhoc-sign and --identity are mutually exclusive
+        signing_group = parser.add_mutually_exclusive_group()
+        signing_group.add_argument(
             "--adhoc-sign",
-            help="Sign the app with adhoc identity.",
+            help=self.ADHOC_SIGN_HELP,
             action="store_true",
         )
-        parser.add_argument(
+        signing_group.add_argument(
             "-i",
             "--identity",
             dest="identity",
-            help=(
-                "The code signing identity to use; either the 40-digit hex "
-                "checksum, or the full name of the identity."
-            ),
+            help=self.IDENTITY_HELP,
             required=False,
         )
 
     def __call__(
-        self, app: Optional[BaseConfig] = None, update: bool = False, **options
-    ):
+        self,
+        app: AppConfig | None = None,
+        update: bool = False,
+        **options,
+    ) -> dict | None:
         # Confirm host compatibility, that all required tools are available,
         # and that the app configuration is finalized.
         self.finalize(app)

@@ -25,6 +25,10 @@ class DummyUpdateCommand(UpdateCommand):
 
         self.actions = []
 
+    def briefcase_toml(self, app):
+        # default any app to an empty `briefcase.toml`
+        return self._briefcase_toml.get(app, {})
+
     def binary_path(self, app):
         return self.bundle_path(app) / f"{app.app_name}.bin"
 
@@ -39,6 +43,10 @@ class DummyUpdateCommand(UpdateCommand):
     def finalize_app_config(self, app):
         super().finalize_app_config(app=app)
         self.actions.append(("finalize-app-config", app.app_name))
+
+    def verify_app_template(self, app):
+        super().verify_app_template(app=app)
+        self.actions.append(("verify-app-template", app.app_name))
 
     def verify_app_tools(self, app):
         super().verify_app_tools(app=app)
@@ -57,6 +65,13 @@ class DummyUpdateCommand(UpdateCommand):
     def install_app_resources(self, app):
         self.actions.append(("resources", app.app_name))
         create_file(self.bundle_path(app) / "resources", "app resources")
+
+    def cleanup_app_support_package(self, app):
+        self.actions.append(("cleanup-support", app.app_name))
+
+    def install_app_support_package(self, app):
+        self.actions.append(("support", app.app_name))
+        create_file(self.bundle_path(app) / "support" / "content.txt", "app support")
 
     def cleanup_app_content(self, app):
         self.actions.append(("cleanup", app.app_name))

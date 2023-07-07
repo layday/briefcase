@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import re
 from abc import abstractmethod
-from typing import List, Optional
 
-from briefcase.config import BaseConfig
+from briefcase.config import AppConfig
 from briefcase.exceptions import BriefcaseCommandError, BriefcaseTestSuiteFailure
 from briefcase.integrations.subprocess import StopStreaming
 
@@ -22,15 +23,14 @@ class LogFilter:
         """Create a filter for a log stream.
 
         :param log_popen: The Popen object for the stream producing the logs.
-        :param clean_filter: A function that will filter a line of logs,
-            returning a "clean" line without any log system preamble.
-        :param clean_output: Should the output displayed to the user be the
-            "clean" output? (Default: True).
-        :param exit_filter: A function that will operate on a string containing
-            the last 10 lines of "clean" (i.e., preamble filtered) logs,
-            returning the integer exit status of the process if an exit
-            condition has been detected, or None if the log stream should
-            continue.
+        :param clean_filter: A function that will filter a line of logs, returning a
+            "clean" line without any log system preamble.
+        :param clean_output: Should the output displayed to the user be the "clean"
+            output? (Default: True).
+        :param exit_filter: A function that will operate on a string containing the last
+            10 lines of "clean" (i.e., preamble filtered) logs, returning the integer
+            exit status of the process if an exit condition has been detected, or None
+            if the log stream should continue.
         """
         self.log_popen = log_popen
         self.returncode = None
@@ -88,10 +88,9 @@ class LogFilter:
     def test_filter(pattern):
         """A factory method for producing filter functions.
 
-        :param pattern: The multiline regex pattern that identifies content of
-            interest in a log (e.g., success/failure conditions)
-        :returns: A log filter function that returns True if the pattern was
-            found
+        :param pattern: The multiline regex pattern that identifies content of interest
+            in a log (e.g., success/failure conditions)
+        :returns: A log filter function that returns True if the pattern was found
         """
 
         def filter_func(recent):
@@ -119,7 +118,7 @@ class RunAppMixin:
 
     def _stream_app_logs(
         self,
-        app: BaseConfig,
+        app: AppConfig,
         popen,
         test_mode=False,
         clean_filter=None,
@@ -209,11 +208,11 @@ class RunCommand(RunAppMixin, BaseCommand):
         self._add_update_options(parser, context_label=" before running")
         self._add_test_options(parser, context_label="Run")
 
-    def _prepare_app_env(self, app: BaseConfig, test_mode: bool):
+    def _prepare_app_env(self, app: AppConfig, test_mode: bool):
         """Prepare the environment for running an app as a log stream.
 
-        This won't be used by every backend; but it's a sufficiently common
-        default that it's been factored out.
+        This won't be used by every backend; but it's a sufficiently common default that
+        it's been factored out.
 
         :param app: The app to be launched
         :param test_mode: Are we launching in test mode?
@@ -233,24 +232,24 @@ class RunCommand(RunAppMixin, BaseCommand):
             return {}
 
     @abstractmethod
-    def run_app(self, app: BaseConfig, **options):
+    def run_app(self, app: AppConfig, **options) -> dict | None:
         """Start an application.
 
         :param app: The application to start
         """
-        ...
 
     def __call__(
         self,
-        appname: Optional[str] = None,
+        appname: str | None = None,
         update: bool = False,
         update_requirements: bool = False,
         update_resources: bool = False,
+        update_support: bool = False,
         no_update: bool = False,
         test_mode: bool = False,
-        passthrough: Optional[List[str]] = None,
+        passthrough: list[str] | None = None,
         **options,
-    ):
+    ) -> dict | None:
         # Which app should we run? If there's only one defined
         # in pyproject.toml, then we can use it as a default;
         # otherwise look for a -a/--app option.
@@ -279,6 +278,7 @@ class RunCommand(RunAppMixin, BaseCommand):
             or update  # An explicit update has been requested
             or update_requirements  # An explicit update of requirements has been requested
             or update_resources  # An explicit update of resources has been requested
+            or update_support  # An explicit update of support files has been requested
             or (not binary_file.exists())  # Binary doesn't exist yet
             or (
                 test_mode and not no_update
@@ -289,6 +289,7 @@ class RunCommand(RunAppMixin, BaseCommand):
                 update=update,
                 update_requirements=update_requirements,
                 update_resources=update_resources,
+                update_support=update_support,
                 no_update=no_update,
                 test_mode=test_mode,
                 **options,
@@ -296,7 +297,7 @@ class RunCommand(RunAppMixin, BaseCommand):
         else:
             state = None
 
-        self.verify_app_tools(app)
+        self.verify_app(app)
 
         state = self.run_app(
             app,

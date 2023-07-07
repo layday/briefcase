@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 import tomli_w
 
+from briefcase.commands.create import _is_local_requirement
 from briefcase.exceptions import BriefcaseCommandError, RequirementsInstallError
 from briefcase.integrations.subprocess import Subprocess
 
@@ -157,7 +158,9 @@ def test_app_packages_valid_requires_no_support_package(
     myapp.requires = ["first", "second==1.2.3", "third>=3.2.1"]
 
     # Override the cache of paths to specify an app packages path, but no support package path
-    create_command._path_index = {myapp: {"app_packages_path": "path/to/app_packages"}}
+    create_command._briefcase_toml[myapp] = {
+        "paths": {"app_packages_path": "path/to/app_packages"}
+    }
 
     create_command.install_app_requirements(myapp, test_mode=False)
 
@@ -294,7 +297,7 @@ def test_app_packages_install_requirements(
     app_packages_path,
     app_packages_path_index,
 ):
-    """requirements can be installed."""
+    """Requirements can be installed."""
 
     # Set up the app requirements
     myapp.requires = ["first", "second", "third"]
@@ -482,6 +485,28 @@ def test_app_requirements_requires(
     # Original app definitions haven't changed
     assert myapp.requires == ["first", "second==1.2.3", "third>=3.2.1"]
     assert myapp.test_requires is None
+
+
+@pytest.mark.parametrize(
+    "altsep, requirement, expected",
+    [
+        (None, "asdf/xcvb", True),
+        (None, "asdf>xcvb", False),
+        (">", "asdf/xcvb", True),
+        (">", "asdf>xcvb", True),
+        (">", "asdf+xcvb", False),
+    ],
+)
+def test__is_local_requirement_altsep_respected(
+    altsep,
+    requirement,
+    expected,
+    monkeypatch,
+):
+    """``os.altsep`` is included as a separator when available."""
+    monkeypatch.setattr(os, "sep", "/")
+    monkeypatch.setattr(os, "altsep", altsep)
+    assert _is_local_requirement(requirement) is expected
 
 
 def _test_app_requirements_paths(

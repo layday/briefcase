@@ -24,6 +24,8 @@ def test_no_args_one_app(run_command, first_app):
         ("verify-tools",),
         # App config has been finalized
         ("finalize-app-config", "first"),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -53,6 +55,8 @@ def test_no_args_one_app_with_passthrough(run_command, first_app):
         ("verify-tools",),
         # App config has been finalized
         ("finalize-app-config", "first"),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools have been verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -100,6 +104,8 @@ def test_with_arg_one_app(run_command, first_app):
         ("verify-tools",),
         # App config has been finalized
         ("finalize-app-config", "first"),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -129,6 +135,8 @@ def test_with_arg_two_apps(run_command, first_app, second_app):
         ("verify-tools",),
         # App config has been finalized
         ("finalize-app-config", "second"),
+        # App template is verified
+        ("verify-app-template", "second"),
         # App tools have been verified
         ("verify-app-tools", "second"),
         # Run the second app
@@ -187,9 +195,12 @@ def test_create_app_before_start(run_command, first_app_config):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -231,9 +242,12 @@ def test_build_app_before_start(run_command, first_app_unbuilt):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -275,9 +289,12 @@ def test_update_app(run_command, first_app):
                 "update": True,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -319,9 +336,12 @@ def test_update_app_requirements(run_command, first_app):
                 "update": False,
                 "update_requirements": True,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -363,9 +383,12 @@ def test_update_app_resources(run_command, first_app):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": True,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -408,9 +431,12 @@ def test_update_unbuilt_app(run_command, first_app_unbuilt):
                 "update": True,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -453,9 +479,12 @@ def test_update_non_existent(run_command, first_app_config):
                 "update": True,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
@@ -497,9 +526,12 @@ def test_test_mode_existing_app(run_command, first_app):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -541,9 +573,12 @@ def test_test_mode_existing_app_with_passthrough(run_command, first_app):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools have been verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -581,6 +616,8 @@ def test_test_mode_existing_app_no_update(run_command, first_app):
         # App config has been finalized
         ("finalize-app-config", "first"),
         # App will not be built; update is disabled
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -622,9 +659,12 @@ def test_test_mode_existing_app_update_requirements(run_command, first_app):
                 "update": False,
                 "update_requirements": True,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -666,9 +706,12 @@ def test_test_mode_existing_app_update_resources(run_command, first_app):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": True,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -710,9 +753,12 @@ def test_test_mode_update_existing_app(run_command, first_app):
                 "update": True,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Run the first app
@@ -754,9 +800,12 @@ def test_test_mode_non_existent(run_command, first_app_config):
                 "update": False,
                 "update_requirements": False,
                 "update_resources": False,
+                "update_support": False,
                 "no_update": False,
             },
         ),
+        # App template is verified
+        ("verify-app-template", "first"),
         # App tools are verified
         ("verify-app-tools", "first"),
         # Then, it will be started
