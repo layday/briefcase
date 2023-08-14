@@ -365,10 +365,10 @@ a custom location for Briefcase's tools.
     def template_target_version(self, app: AppConfig) -> str | None:
         """The target version of Briefcase for the app from ``briefcase.toml``.
 
-        This value represents a version epoch specific to the platform. An epoch
-        begins when a breaking change is introduced. Therefore, this value would
-        remain the version of Briefcase that introduced a breaking change for a
-        template until another such change requires a new epoch.
+        This value represents a version epoch specific to the platform. An epoch begins
+        when a breaking change is introduced. Therefore, this value would remain the
+        version of Briefcase that introduced a breaking change for a template until
+        another such change requires a new epoch.
 
         :param app: The config object for the app
         :return: target version or None if one isn't specified
@@ -666,8 +666,8 @@ any compatibility problems, and then add the compatibility declaration.
             "-v",
             "--verbosity",
             action="count",
-            default=1,
-            help="set the verbosity of output",
+            default=0,
+            help="Enable verbose logging. -vv enables super verbose mode.",
         )
         parser.add_argument("-V", "--version", action="version", version=__version__)
         parser.add_argument(

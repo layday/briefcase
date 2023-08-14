@@ -3,11 +3,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from briefcase.integrations.android_sdk import AndroidSDK
+from briefcase.integrations.android_sdk import ADB, AndroidSDK
 from briefcase.integrations.base import ToolCache
 from briefcase.integrations.download import Download
 from briefcase.integrations.java import JDK
 from briefcase.integrations.subprocess import Subprocess
+
+# current versions of Android SDK Manager
+SDK_MGR_VER = "9.0"
+SDK_MGR_DL_VER = "9477386"
 
 
 @pytest.fixture
@@ -30,3 +34,8 @@ def android_sdk(mock_tools, tmp_path) -> AndroidSDK:
     sdk_root.mkdir(parents=True)
 
     return AndroidSDK(mock_tools, root_path=sdk_root)
+
+
+@pytest.fixture
+def adb(mock_tools) -> ADB:
+    return ADB(mock_tools, "exampleDevice")

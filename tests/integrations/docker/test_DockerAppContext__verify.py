@@ -50,6 +50,7 @@ def test_success(mock_tools, first_app_config, verify_kwargs):
         "Docker version 19.03.8, build afacb8b\n",
         "docker info return value",
         "github.com/docker/buildx v0.10.2 00ed17d\n",
+        "1ed313b0551f",  # cached image check
     ]
 
     DockerAppContext.verify(mock_tools, first_app_config, **verify_kwargs)
@@ -82,7 +83,7 @@ def test_success(mock_tools, first_app_config, verify_kwargs):
 def test_docker_verify_fail(mock_tools, first_app_config, verify_kwargs):
     """Failure if Docker cannot be verified."""
     mock_tools.subprocess = MagicMock(spec_set=Subprocess)
-    # Mock the existence of Docker.
+    # Mock the absence of Docker
     mock_tools.subprocess.check_output.side_effect = FileNotFoundError
 
     with pytest.raises(BriefcaseCommandError, match="Briefcase requires Docker"):
@@ -97,11 +98,16 @@ def test_docker_image_build_fail(mock_tools, first_app_config, verify_kwargs):
         "Docker version 19.03.8, build afacb8b\n",
         "docker info return value",
         "github.com/docker/buildx v0.10.2 00ed17d\n",
+        "1ed313b0551f",  # cached image check
     ]
 
-    mock_tools.subprocess.run.side_effect = subprocess.CalledProcessError(
-        returncode=80, cmd=["docker" "build"]
-    )
+    mock_tools.subprocess.run.side_effect = [
+        # Mock the user mapping inspection calls
+        "",
+        "",
+        # Mock the image build failing
+        subprocess.CalledProcessError(returncode=80, cmd=["docker" "build"]),
+    ]
 
     with pytest.raises(
         BriefcaseCommandError,

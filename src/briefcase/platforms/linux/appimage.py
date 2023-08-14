@@ -150,6 +150,7 @@ class LinuxAppImageCreateCommand(
 
     def output_format_template_context(self, app: AppConfig):
         context = super().output_format_template_context(app)
+
         # Add the manylinux tag to the template context.
         try:
             tag = getattr(app, "manylinux_image_tag", "latest")
@@ -166,6 +167,12 @@ class LinuxAppImageCreateCommand(
                 )
         except AttributeError:
             pass
+
+        # Use the non-root user if Docker is not mapping usernames
+        try:
+            context["use_non_root_user"] = not self.tools.docker.is_user_mapped
+        except AttributeError:
+            pass  # ignore if not using Docker
 
         return context
 
@@ -251,7 +258,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
             try:
                 # For some reason, the version has to be passed in as an
                 # environment variable, *not* in the configuration.
-                env["VERSION"] = app.version
+                env["LINUXDEPLOY_OUTPUT_VERSION"] = app.version
                 # The internals of the binary aren't inherently visible, so
                 # there's no need to package copyright files. These files
                 # appear to be missing by default in the OS dev packages anyway,
@@ -266,6 +273,10 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                 # Explicitly declare target architecture as the current architecture.
                 # This can be used by some linuxdeploy plugins.
                 env["ARCH"] = self.tools.host_arch
+
+                # Enable debug logging for linuxdeploy GTK and Qt plugins
+                if self.logger.is_deep_debug:
+                    env["DEBUG"] = "1"
 
                 # Find all the .so files in app and app_packages,
                 # so they can be passed in to linuxdeploy to have their
@@ -295,6 +306,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                         ),
                         "--output",
                         "appimage",
+                        "-v0" if self.logger.is_deep_debug else "-v1",
                         "-l",
                         "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so.37",
                     ]

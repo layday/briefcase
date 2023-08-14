@@ -14,6 +14,8 @@ from briefcase.exceptions import (
 )
 from briefcase.integrations.java import JDK
 
+from .conftest import JDK_RELEASE
+
 CALL_JAVA_HOME = mock.call(["/usr/libexec/java_home"])
 
 
@@ -46,7 +48,7 @@ def test_macos_tool_java_home(mock_tools, capsys):
     # Mock 2 calls to check_output.
     mock_tools.subprocess.check_output.side_effect = [
         "/path/to/java",
-        "javac 17.0.7\n",
+        f"javac {JDK_RELEASE}\n",
     ]
 
     # Create a JDK wrapper by verification
@@ -167,7 +169,7 @@ def test_macos_provided_overrides_tool_java_home(mock_tools, capsys):
     mock_tools.os.environ = {"JAVA_HOME": "/path/to/java"}
 
     # Mock return value from javac. libexec won't be invoked.
-    mock_tools.subprocess.check_output.return_value = "javac 17.0.7\n"
+    mock_tools.subprocess.check_output.return_value = f"javac {JDK_RELEASE}\n"
 
     # Create a JDK wrapper by verification
     JDK.verify(mock_tools)
@@ -193,7 +195,7 @@ def test_valid_provided_java_home(mock_tools, capsys):
     mock_tools.os.environ = {"JAVA_HOME": "/path/to/java"}
 
     # Mock return value from javac.
-    mock_tools.subprocess.check_output.return_value = "javac 17.0.7\n"
+    mock_tools.subprocess.check_output.return_value = f"javac {JDK_RELEASE}\n"
 
     # Create a JDK wrapper by verification
     JDK.verify(mock_tools)
@@ -392,42 +394,42 @@ def test_unparseable_javac_version(mock_tools, host_os, java_home, tmp_path, cap
             "Darwin",
             "x86_64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_x64_mac_hotspot_17.0.7_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_mac_hotspot_{JDK_RELEASE}_7.tar.gz",
             "java17/Contents/Home",
         ),
         (
             "Darwin",
             "aarch64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_aarch64_mac_hotspot_17.0.7_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_aarch64_mac_hotspot_{JDK_RELEASE}_7.tar.gz",
             "java17/Contents/Home",
         ),
         (
             "Linux",
             "x86_64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.7_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
             "java17",
         ),
         (
             "Linux",
             "aarch64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_aarch64_linux_hotspot_17.0.7_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_aarch64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
             "java17",
         ),
         (
             "Linux",
             "armv6l",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_arm_linux_hotspot_17.0.7_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_arm_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
             "java17",
         ),
         (
             "Windows",
             "AMD64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            "jdk-17.0.7+7/OpenJDK17U-jdk_x64_windows_hotspot_17.0.7_7.zip",
+            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_windows_hotspot_{JDK_RELEASE}_7.zip",
             "java17",
         ),
     ],
@@ -451,14 +453,12 @@ def test_successful_jdk_download(
     mock_tools.os.environ = {"JAVA_HOME": "/does/not/exist"}
 
     # Mock the cached download path
-    # Consider to remove if block when we drop py3.7 support, only keep statements from else.
-    # MagicMock below py3.8 doesn't have __fspath__ attribute.
     archive = mock.MagicMock()
     archive.__fspath__.return_value = "/path/to/download.zip"
     mock_tools.download.file.return_value = archive
 
     # Create a directory to make it look like Java was downloaded and unpacked.
-    (tmp_path / "tools" / "jdk-17.0.7+7").mkdir(parents=True)
+    (tmp_path / "tools" / f"jdk-{JDK_RELEASE}+7").mkdir(parents=True)
 
     # Invoke the verify call
     JDK.verify(mock_tools)
@@ -477,7 +477,6 @@ def test_successful_jdk_download(
         role="Java 17 JDK",
     )
     # The archive was unpacked
-    # TODO: Py3.6 compatibility; os.fsdecode not required in Py3.7
     mock_tools.shutil.unpack_archive.assert_called_with(
         "/path/to/download.zip", extract_dir=os.fsdecode(tmp_path / "tools")
     )
@@ -514,7 +513,7 @@ def test_jdk_download_failure(mock_tools, tmp_path):
     # That download was attempted
     mock_tools.download.file.assert_called_with(
         url="https://github.com/adoptium/temurin17-binaries/releases/download/"
-        "jdk-17.0.7+7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.7_7.tar.gz",
+        f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
         download_path=tmp_path / "tools",
         role="Java 17 JDK",
     )
@@ -529,8 +528,6 @@ def test_invalid_jdk_archive(mock_tools, tmp_path):
     mock_tools.host_arch = "x86_64"
 
     # Mock the cached download path
-    # Consider to remove if block when we drop py3.7 support, only keep statements from else.
-    # MagicMock below py3.8 doesn't have __fspath__ attribute.
     archive = mock.MagicMock()
     archive.__fspath__.return_value = "/path/to/download.zip"
     mock_tools.download.file.return_value = archive
@@ -544,12 +541,11 @@ def test_invalid_jdk_archive(mock_tools, tmp_path):
     # The download occurred
     mock_tools.download.file.assert_called_with(
         url="https://github.com/adoptium/temurin17-binaries/releases/download/"
-        "jdk-17.0.7+7/OpenJDK17U-jdk_x64_linux_hotspot_17.0.7_7.tar.gz",
+        f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
         download_path=tmp_path / "tools",
         role="Java 17 JDK",
     )
     # An attempt was made to unpack the archive.
-    # TODO: Py3.6 compatibility; os.fsdecode not required in Py3.7
     mock_tools.shutil.unpack_archive.assert_called_with(
         "/path/to/download.zip",
         extract_dir=os.fsdecode(tmp_path / "tools"),
