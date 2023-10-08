@@ -30,12 +30,11 @@ def test_call(mock_sub, capsys, platform, sub_stream_kw, sleep_zero):
 def test_call_with_arg(mock_sub, capsys, sub_stream_kw, sleep_zero):
     """Any extra keyword arguments are passed through as-is."""
 
-    mock_sub.run(["hello", "world"], universal_newlines=True)
+    mock_sub.run(["hello", "world"], extra_kw="extra")
 
-    sub_stream_kw.pop("text")
     mock_sub._subprocess.Popen.assert_called_with(
         ["hello", "world"],
-        universal_newlines=True,
+        extra_kw="extra",
         **sub_stream_kw,
     )
     # fmt: off
@@ -239,16 +238,16 @@ def test_calledprocesserror_exception_logging(mock_sub, sleep_zero, capsys):
         ({}, {"text": True, "encoding": ANY, "errors": "backslashreplace"}),
         ({"text": True}, {"text": True, "encoding": ANY, "errors": "backslashreplace"}),
         ({"text": False}, {"text": False}),
-        ({"universal_newlines": False}, {"universal_newlines": False}),
+        ({"universal_newlines": False}, {"text": False}),
         (
             {"universal_newlines": True},
-            {"universal_newlines": True, "encoding": ANY, "errors": "backslashreplace"},
+            {"text": True, "encoding": ANY, "errors": "backslashreplace"},
         ),
     ],
 )
 def test_text_eq_true_default_overriding(mock_sub, in_kwargs, kwargs, sleep_zero):
     """If text or universal_newlines is explicitly provided, those should override
-    text=true default."""
+    text=true default and universal_newlines should be converted to text."""
     mock_sub.run(["hello", "world"], **in_kwargs)
 
     mock_sub._subprocess.Popen.assert_called_with(
@@ -258,3 +257,35 @@ def test_text_eq_true_default_overriding(mock_sub, in_kwargs, kwargs, sleep_zero
         bufsize=1,
         **kwargs,
     )
+
+
+@pytest.mark.parametrize("platform", ["Linux", "Darwin", "Windows"])
+def test_filtered_output(mock_sub, capsys, platform, sub_stream_kw, sleep_zero):
+    """Streamed output can be filtered."""
+
+    # Add an output filter that replaces all spaces with newlines.
+    def space_filter(line):
+        yield from line.split(" ")
+
+    mock_sub.tools.sys.platform = platform
+    mock_sub.run(
+        ["hello", "world"],
+        filter_func=space_filter,
+    )
+
+    mock_sub._subprocess.Popen.assert_called_with(
+        ["hello", "world"],
+        **sub_stream_kw,
+    )
+    # fmt: off
+    expected_output = (
+        "output\n"
+        "line\n"
+        "1\n"
+        "\n"
+        "output\n"
+        "line\n"
+        "3\n"
+    )
+    # fmt: on
+    assert capsys.readouterr().out == expected_output

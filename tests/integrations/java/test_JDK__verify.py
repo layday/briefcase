@@ -8,13 +8,14 @@ import pytest
 
 from briefcase.exceptions import (
     BriefcaseCommandError,
+    IncompatibleToolError,
     MissingToolError,
     NetworkFailure,
     UnsupportedHostError,
 )
 from briefcase.integrations.java import JDK
 
-from .conftest import JDK_RELEASE
+from .conftest import JDK_BUILD, JDK_RELEASE
 
 CALL_JAVA_HOME = mock.call(["/usr/libexec/java_home"])
 
@@ -36,6 +37,17 @@ def test_unsupported_os(mock_tools):
     with pytest.raises(
         UnsupportedHostError,
         match=f"{JDK.name} is not supported on wonky",
+    ):
+        JDK.verify(mock_tools)
+
+
+def test_unsupported_arch(mock_tools):
+    """When the architecture is not supported, an error is raised."""
+    mock_tools.host_arch = "IA-64"
+
+    with pytest.raises(
+        IncompatibleToolError,
+        match="Briefcase cannot install Java JDK on this machine.",
     ):
         JDK.verify(mock_tools)
 
@@ -388,49 +400,71 @@ def test_unparseable_javac_version(mock_tools, host_os, java_home, tmp_path, cap
 
 
 @pytest.mark.parametrize(
-    "host_os, host_arch, jdk_url, jhome",
+    "host_os, host_arch, jdk_url, jhome, is_32bit",
     [
         (
             "Darwin",
             "x86_64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_mac_hotspot_{JDK_RELEASE}_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_x64_mac_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
             "java17/Contents/Home",
+            False,
         ),
         (
             "Darwin",
-            "aarch64",
+            "arm64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_aarch64_mac_hotspot_{JDK_RELEASE}_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_aarch64_mac_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
             "java17/Contents/Home",
+            False,
         ),
         (
             "Linux",
             "x86_64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
             "java17",
+            False,
         ),
         (
             "Linux",
             "aarch64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_aarch64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_aarch64_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
             "java17",
+            False,
         ),
         (
             "Linux",
-            "armv6l",
+            "aarch64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_arm_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_arm_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
             "java17",
+            True,
+        ),
+        (
+            "Linux",
+            "armv7l",
+            "https://github.com/adoptium/temurin17-binaries/releases/download/"
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_arm_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
+            "java17",
+            False,
+        ),
+        (
+            "Linux",
+            "armv8l",
+            "https://github.com/adoptium/temurin17-binaries/releases/download/"
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_arm_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
+            "java17",
+            False,
         ),
         (
             "Windows",
             "AMD64",
             "https://github.com/adoptium/temurin17-binaries/releases/download/"
-            f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_windows_hotspot_{JDK_RELEASE}_7.zip",
+            f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_x64_windows_hotspot_{JDK_RELEASE}_{JDK_BUILD}.zip",
             "java17",
+            False,
         ),
     ],
 )
@@ -442,11 +476,13 @@ def test_successful_jdk_download(
     host_arch,
     jdk_url,
     jhome,
+    is_32bit,
 ):
     """If needed, a JDK can be downloaded."""
     # Mock host OS and arch
     mock_tools.host_os = host_os
     mock_tools.host_arch = host_arch
+    mock_tools.is_32bit_python = is_32bit
 
     # Mock a JAVA_HOME that won't exist
     # This is only needed to make macOS *not* run /usr/libexec/java_home
@@ -458,7 +494,7 @@ def test_successful_jdk_download(
     mock_tools.download.file.return_value = archive
 
     # Create a directory to make it look like Java was downloaded and unpacked.
-    (tmp_path / "tools" / f"jdk-{JDK_RELEASE}+7").mkdir(parents=True)
+    (tmp_path / "tools" / f"jdk-{JDK_RELEASE}+{JDK_BUILD}").mkdir(parents=True)
 
     # Invoke the verify call
     JDK.verify(mock_tools)
@@ -513,7 +549,7 @@ def test_jdk_download_failure(mock_tools, tmp_path):
     # That download was attempted
     mock_tools.download.file.assert_called_with(
         url="https://github.com/adoptium/temurin17-binaries/releases/download/"
-        f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
+        f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
         download_path=tmp_path / "tools",
         role="Java 17 JDK",
     )
@@ -541,7 +577,7 @@ def test_invalid_jdk_archive(mock_tools, tmp_path):
     # The download occurred
     mock_tools.download.file.assert_called_with(
         url="https://github.com/adoptium/temurin17-binaries/releases/download/"
-        f"jdk-{JDK_RELEASE}+7/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_7.tar.gz",
+        f"jdk-{JDK_RELEASE}+{JDK_BUILD}/OpenJDK17U-jdk_x64_linux_hotspot_{JDK_RELEASE}_{JDK_BUILD}.tar.gz",
         download_path=tmp_path / "tools",
         role="Java 17 JDK",
     )

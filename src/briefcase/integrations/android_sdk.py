@@ -6,6 +6,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 from contextlib import suppress
 from datetime import datetime
@@ -15,6 +16,7 @@ from briefcase.config import PEP508_NAME_RE
 from briefcase.console import InputDisabled, select_option
 from briefcase.exceptions import (
     BriefcaseCommandError,
+    IncompatibleToolError,
     InvalidDeviceError,
     MissingToolError,
 )
@@ -62,12 +64,30 @@ class AndroidSDK(ManagedTool):
 
     @property
     def cmdline_tools_url(self) -> str:
-        """The Android SDK Command-Line Tools URL appropriate to the current OS."""
-        platform_name = self.tools.host_os.lower()
-        if self.tools.host_os.lower() == "darwin":
-            platform_name = "mac"
-        elif self.tools.host_os.lower() == "windows":  # pragma: no branch
-            platform_name = "win"
+        """The Android SDK Command-Line Tools URL appropriate for the current machine.
+
+        The SDK largely only supports typical development environments; if a machine is
+        using an unsupported architecture, `sdkmanager` will error while installing the
+        emulator as a dependency of the build-tools. However, for some of the platforms
+        that are unsupported by sdkmanager, users can set up their own SDK install.
+        """
+        try:
+            platform_name = {
+                "Darwin": {
+                    "arm64": "mac",
+                    "x86_64": "mac",
+                },
+                "Linux": {
+                    "x86_64": "linux",
+                },
+                "Windows": {
+                    "AMD64": "win",
+                },
+            }[self.tools.host_os][self.tools.host_arch]
+        except KeyError as e:
+            raise IncompatibleToolError(
+                tool=self.full_name, env_var="ANDROID_HOME"
+            ) from e
 
         return (
             f"https://dl.google.com/android/repository/"
@@ -787,7 +807,11 @@ connection.
         # Unpack skin archive
         with self.tools.input.wait_bar("Installing device skin..."):
             try:
-                self.tools.shutil.unpack_archive(skin_tgz_path, extract_dir=skin_path)
+                self.tools.shutil.unpack_archive(
+                    skin_tgz_path,
+                    extract_dir=skin_path,
+                    **({"filter": "data"} if sys.version_info >= (3, 12) else {}),
+                )
             except (shutil.ReadError, EOFError) as err:
                 raise BriefcaseCommandError(
                     f"Unable to unpack {skin} device skin."
@@ -1096,7 +1120,6 @@ An emulator named '{avd}' already exists.
 
 """
                 )
-                self.tools.logger.info()
             else:
                 avd_is_invalid = False
 
@@ -1202,7 +1225,7 @@ In future, you can specify this device by running:
         # Parse the existing config into key-value pairs
         avd_config = {}
         try:
-            with self.avd_config_filename(avd).open("r") as f:
+            with self.avd_config_filename(avd).open("r", encoding="utf-8") as f:
                 for line in f:
                     try:
                         key, value = line.rstrip().split("=", 1)
@@ -1229,7 +1252,7 @@ In future, you can specify this device by running:
         avd_config.update(updates)
 
         # Write the update configuration.
-        with self.avd_config_filename(avd).open("w") as f:
+        with self.avd_config_filename(avd).open("w", encoding="utf-8") as f:
             for key, value in avd_config.items():
                 f.write(f"{key}={value}\n")
 
@@ -1534,6 +1557,8 @@ Activity class not found while starting app.
         :param pid: The PID whose logs you want to display.
         :returns: A Popen object for the logcat call
         """
+        # As best as we can make out, adb logcat returns UTF-8 output.
+        # See #1425 for details.
         return self.tools.subprocess.Popen(
             [
                 os.fsdecode(self.tools.android_sdk.adb_path),
@@ -1547,6 +1572,7 @@ Activity class not found while starting app.
             # Filter out some noisy and useless tags.
             + [f"{tag}:S" for tag in ["EGL_emulation"]],
             env=self.tools.android_sdk.env,
+            encoding="UTF-8",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
@@ -1559,6 +1585,8 @@ Activity class not found while starting app.
         :param since: The start time from which logs should be displayed
         """
         try:
+            # As best as we can make out, adb logcat returns UTF-8 output.
+            # See #1425 for details.
             self.tools.subprocess.run(
                 [
                     os.fsdecode(self.tools.android_sdk.adb_path),
@@ -1578,6 +1606,7 @@ Activity class not found while starting app.
                 ],
                 env=self.tools.android_sdk.env,
                 check=True,
+                encoding="UTF-8",
             )
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError("Error starting ADB logcat.") from e

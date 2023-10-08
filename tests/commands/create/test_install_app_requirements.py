@@ -31,10 +31,11 @@ def create_installation_artefacts(app_packages_path, packages):
 
     def _create_installation_artefacts(*args, **kwargs):
         for package in packages:
-            (app_packages_path / package).mkdir(parents=True)
-            with (app_packages_path / package / "__init__.py").open("w") as f:
+            package_path = app_packages_path / package
+            package_path.mkdir(parents=True)
+            with (package_path / "__init__.py").open("w", encoding="utf-8") as f:
                 f.write("")
-            with (app_packages_path / package / "__main__.py").open("w") as f:
+            with (package_path / "__main__.py").open("w", encoding="utf-8") as f:
                 f.write('print("I am {package}")')
 
     return _create_installation_artefacts
@@ -120,6 +121,8 @@ def test_app_packages_valid_requires(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -133,15 +136,7 @@ def test_app_packages_valid_requires(
             "third>=3.2.1",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -171,6 +166,8 @@ def test_app_packages_valid_requires_no_support_package(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -184,6 +181,7 @@ def test_app_packages_valid_requires_no_support_package(
             "third>=3.2.1",
         ],
         check=True,
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -217,6 +215,8 @@ def test_app_packages_invalid_requires(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -228,15 +228,7 @@ def test_app_packages_invalid_requires(
             "does-not-exist",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -270,6 +262,8 @@ def test_app_packages_offline(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -283,15 +277,7 @@ def test_app_packages_offline(
             "third",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -325,6 +311,8 @@ def test_app_packages_install_requirements(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -338,15 +326,7 @@ def test_app_packages_install_requirements(
             "third",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # The new app packages have installation artefacts created
@@ -390,6 +370,8 @@ def test_app_packages_replace_existing_requirements(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -403,15 +385,7 @@ def test_app_packages_replace_existing_requirements(
             "third",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # The new app packages have installation artefacts created
@@ -445,7 +419,7 @@ def test_app_requirements_no_requires(
 
     # requirements.txt doesn't exist either
     assert app_requirements_path.exists()
-    with app_requirements_path.open() as f:
+    with app_requirements_path.open(encoding="utf-8") as f:
         assert f.read() == ""
 
     # Original app definitions haven't changed
@@ -468,7 +442,7 @@ def test_app_requirements_empty_requires(
 
     # requirements.txt doesn't exist either
     assert app_requirements_path.exists()
-    with app_requirements_path.open() as f:
+    with app_requirements_path.open(encoding="utf-8") as f:
         assert f.read() == ""
 
     # Original app definitions haven't changed
@@ -491,7 +465,7 @@ def test_app_requirements_requires(
 
     # requirements.txt doesn't exist either
     assert app_requirements_path.exists()
-    with app_requirements_path.open() as f:
+    with app_requirements_path.open(encoding="utf-8") as f:
         assert f.read() == "first\nsecond==1.2.3\nthird>=3.2.1\n"
 
     # Original app definitions haven't changed
@@ -537,7 +511,7 @@ def _test_app_requirements_paths(
     myapp.requires = ["first", requirement, "third"]
 
     create_command.install_app_requirements(myapp, test_mode=False)
-    with app_requirements_path.open() as f:
+    with app_requirements_path.open(encoding="utf-8") as f:
         assert f.read() == (
             "\n".join(
                 [
@@ -680,6 +654,8 @@ def test_app_packages_test_requires(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -693,15 +669,7 @@ def test_app_packages_test_requires(
             "third>=3.2.1",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -726,6 +694,8 @@ def test_app_packages_test_requires_test_mode(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -741,15 +711,7 @@ def test_app_packages_test_requires_test_mode(
             "pytest-tldr",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed
@@ -775,6 +737,8 @@ def test_app_packages_only_test_requires_test_mode(
         [
             sys.executable,
             "-u",
+            "-X",
+            "utf8",
             "-m",
             "pip",
             "install",
@@ -787,15 +751,7 @@ def test_app_packages_only_test_requires_test_mode(
             "pytest-tldr",
         ],
         check=True,
-        env={
-            "PYTHONPATH": str(
-                create_command.bundle_path(myapp)
-                / "path"
-                / "to"
-                / "support"
-                / "platform-site"
-            )
-        },
+        encoding="UTF-8",
     )
 
     # Original app definitions haven't changed

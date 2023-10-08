@@ -12,7 +12,13 @@ from briefcase.commands import (
 from briefcase.config import BaseConfig
 from briefcase.exceptions import BriefcaseCommandError
 from briefcase.integrations.xcode import Xcode
-from briefcase.platforms.macOS import macOSMixin, macOSPackageMixin, macOSRunMixin
+from briefcase.platforms.macOS import (
+    macOSInstallMixin,
+    macOSMixin,
+    macOSPackageMixin,
+    macOSRunMixin,
+)
+from briefcase.platforms.macOS.filters import XcodeBuildFilter
 
 
 class macOSXcodeMixin(macOSMixin):
@@ -36,7 +42,7 @@ class macOSXcodeMixin(macOSMixin):
         return self.bundle_path(app) / "build" / "Release" / f"{app.formal_name}.app"
 
 
-class macOSXcodeCreateCommand(macOSXcodeMixin, CreateCommand):
+class macOSXcodeCreateCommand(macOSXcodeMixin, macOSInstallMixin, CreateCommand):
     description = "Create and populate a macOS Xcode project."
 
 
@@ -56,7 +62,7 @@ class macOSXcodeBuildCommand(macOSXcodeMixin, BuildCommand):
 
         :param app: The application to build
         """
-        self.logger.info("Building XCode project...", prefix=app.app_name)
+        self.logger.info("Building Xcode project...", prefix=app.app_name)
         with self.input.wait_bar("Building..."):
             try:
                 self.tools.subprocess.run(
@@ -70,6 +76,9 @@ class macOSXcodeBuildCommand(macOSXcodeMixin, BuildCommand):
                         "build",
                     ],
                     check=True,
+                    filter_func=(
+                        None if self.tools.logger.is_deep_debug else XcodeBuildFilter()
+                    ),
                 )
                 self.logger.info("Build succeeded.")
             except subprocess.CalledProcessError as e:
