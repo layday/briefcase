@@ -55,6 +55,10 @@ def test_install_app_packages(
             ("third", "3.4.5"),
         ]
     )
+
+    # Mock the thin command so we can confirm it was invoked.
+    create_command.thin_app_packages = mock.Mock()
+
     # Mock the merge command so we can confirm it was invoked.
     create_command.merge_app_packages = mock.Mock()
 
@@ -106,6 +110,8 @@ def test_install_app_packages(
                 "--no-user",
                 f"--target={bundle_path / ('app_packages.' + other_arch)}",
                 "--no-deps",
+                "--only-binary",
+                ":all:",
                 "second==1.2.3",
                 "third==3.4.5",
             ],
@@ -122,6 +128,12 @@ def test_install_app_packages(
     # The app packages folder has been created. The existence of the target and host
     # versions is validated as a result of the underlying install/merge methods.
     assert (bundle_path / f"app_packages.{other_arch}").is_dir()
+
+    # An attempt was made thin the "other" arch packages.
+    create_command.thin_app_packages.assert_called_once_with(
+        bundle_path / f"app_packages.{other_arch}",
+        arch=other_arch,
+    )
 
     # An attempt was made to merge packages.
     create_command.merge_app_packages.assert_called_once_with(
@@ -162,6 +174,9 @@ def test_install_app_packages_no_binary(
 
     # Mock the result of finding no binary packages.
     create_command.find_binary_packages = mock.Mock(return_value=[])
+
+    # Mock the thin command so we can confirm it was invoked.
+    create_command.thin_app_packages = mock.Mock()
 
     # Mock the merge command so we can confirm it was invoked.
     create_command.merge_app_packages = mock.Mock()
@@ -205,7 +220,11 @@ def test_install_app_packages_no_binary(
     # result of the underlying install/merge methods.
     assert (bundle_path / f"app_packages.{other_arch}").is_dir()
 
-    # We still need to merge the app packages; this is effectively just a copy.
+    # We still need to thin and merge the app packages; this is effectively just a copy.
+    create_command.thin_app_packages.assert_called_once_with(
+        bundle_path / f"app_packages.{other_arch}",
+        arch=other_arch,
+    )
     create_command.merge_app_packages.assert_called_once_with(
         target_app_packages=bundle_path
         / "First App.app"
@@ -237,6 +256,9 @@ def test_install_app_packages_failure(create_command, first_app_templated, tmp_p
             ("third", "3.4.5"),
         ]
     )
+
+    # Mock the thin command so we can confirm it was invoked.
+    create_command.thin_app_packages = mock.Mock()
 
     # Mock the merge command so we can confirm it was invoked.
     create_command.merge_app_packages = mock.Mock()
@@ -305,6 +327,8 @@ def test_install_app_packages_failure(create_command, first_app_templated, tmp_p
                 "--no-user",
                 f"--target={bundle_path / 'app_packages.x86_64'}",
                 "--no-deps",
+                "--only-binary",
+                ":all:",
                 "second==1.2.3",
                 "third==3.4.5",
             ],
@@ -323,20 +347,101 @@ def test_install_app_packages_failure(create_command, first_app_templated, tmp_p
     # result of the underlying install/merge methods.
     assert (bundle_path / "app_packages.x86_64").is_dir()
 
-    # We didn't attempt to merge, because we didn't complete installing.
+    # We didn't attempt to thin or  merge, because we didn't complete installing.
+    create_command.thin_app_packages.assert_not_called()
     create_command.merge_app_packages.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "host_arch, other_arch",
+    [
+        ("arm64", "x86_64"),
+        ("arm64", "x86_64"),
+    ],
+)
+def test_install_app_packages_non_universal(
+    create_command,
+    first_app_templated,
+    tmp_path,
+    host_arch,
+    other_arch,
+):
+    """If the app is non-universal, only a single install pass occurs, followed by
+    thinning."""
+    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
+
+    create_command.tools.host_arch = host_arch
+    first_app_templated.requires = ["first", "second==1.2.3", "third>=3.2.1"]
+    first_app_templated.universal_build = False
+
+    # Mock the find_binary_packages command so we can confirm it wasn't invoked.
+    create_command.find_binary_packages = mock.Mock()
+
+    # Mock the thin command so we can confirm it was invoked.
+    create_command.thin_app_packages = mock.Mock()
+
+    # Mock the merge command so we can confirm it wasn't invoked.
+    create_command.merge_app_packages = mock.Mock()
+
+    create_command.install_app_requirements(first_app_templated, test_mode=False)
+
+    # We didn't search for binary packages
+    create_command.find_binary_packages.assert_not_called()
+
+    # One request was made to install requirements
+    assert create_command.tools[first_app_templated].app_context.run.mock_calls == [
+        mock.call(
+            [
+                sys.executable,
+                "-u",
+                "-X",
+                "utf8",
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "--no-python-version-warning",
+                "--upgrade",
+                "--no-user",
+                f"--target={bundle_path / 'First App.app' / 'Contents' / 'Resources' / 'app_packages'}",
+                "first",
+                "second==1.2.3",
+                "third>=3.2.1",
+            ],
+            check=True,
+            encoding="UTF-8",
+        ),
+    ]
+
+    # An attempt was made to thin the app packages
+    create_command.thin_app_packages.assert_called_once_with(
+        bundle_path / "First App.app" / "Contents" / "Resources" / "app_packages",
+        arch=host_arch,
+    )
+
+    # No attempt was made to merge packages.
+    create_command.merge_app_packages.assert_not_called()
+
+
+@pytest.mark.parametrize("universal_build", [True, False])
 @pytest.mark.parametrize("pre_existing", [True, False])
 def test_install_support_package(
     create_command,
     first_app_templated,
     tmp_path,
     pre_existing,
+    universal_build,
 ):
     """The standard library is copied out of the support package into the app bundle."""
     # Hard code the support revision
     first_app_templated.support_revision = "37"
+
+    first_app_templated.universal_build = universal_build
+
+    create_command.tools.host_arch = "gothic"
+
+    # Mock the thin command so we can confirm if it was invoked.
+    create_command.ensure_thin_binary = mock.Mock()
 
     bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
     runtime_support_path = (
@@ -394,3 +499,12 @@ def test_install_support_package(
 
     # The legacy content has been purged
     assert not (runtime_support_path / "python-stdlib" / "old-stdlib").exists()
+
+    # Only thin if this is a non-universal app
+    if universal_build:
+        create_command.ensure_thin_binary.assert_not_called()
+    else:
+        create_command.ensure_thin_binary.assert_called_once_with(
+            bundle_path / "First App.app" / "Contents" / "MacOS" / "First App",
+            arch="gothic",
+        )
