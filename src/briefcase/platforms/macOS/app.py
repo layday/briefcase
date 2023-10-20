@@ -34,21 +34,21 @@ class macOSAppMixin(macOSMixin):
 class macOSAppCreateCommand(macOSAppMixin, macOSInstallMixin, CreateCommand):
     description = "Create and populate a macOS app."
 
-    def _extra_pip_args(self, app: AppConfig):
-        from packaging.tags import platform_tags
+    # def _extra_pip_args(self, app: AppConfig):
+    #     from packaging.tags import platform_tags
 
-        return [
-            "--only-binary",
-            ":all:",
-            # Prioritise universal2 wheels; pip will favour platform-specific wheels by default
-            *(
-                i
-                for p in sorted(
-                    platform_tags(), key=lambda t: 0 if "universal2" in t else 1
-                )
-                for i in ('--platform', p)
-            )
-        ]
+    #     return [
+    #         "--only-binary",
+    #         ":all:",
+    #         # Prioritise universal2 wheels; pip will favour platform-specific wheels by default
+    #         *(
+    #             i
+    #             for p in sorted(
+    #                 platform_tags(), key=lambda t: 0 if "universal2" in t else 1
+    #             )
+    #             for i in ('--platform', p)
+    #         )
+    #     ]
 
     def support_path(self, app: AppConfig, runtime=False) -> Path:
         if runtime:
