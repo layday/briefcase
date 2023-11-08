@@ -13,7 +13,6 @@ from argparse import RawDescriptionHelpFormatter
 from pathlib import Path
 
 from cookiecutter import exceptions as cookiecutter_exceptions
-from cookiecutter.log import configure_logger as configure_cookiecutter_logger
 from cookiecutter.repository import is_repo_url
 from platformdirs import PlatformDirs
 
@@ -693,7 +692,7 @@ any compatibility problems, and then add the compatibility declaration.
             "--verbosity",
             action="count",
             default=0,
-            help="Enable verbose logging. -vv enables super verbose mode.",
+            help="Enable verbose logging. Use -vv and -vvv to increase logging verbosity.",
         )
         parser.add_argument("-V", "--version", action="version", version=__version__)
         parser.add_argument(
@@ -844,6 +843,10 @@ Did you run Briefcase in a project directory that contains {filename.name!r}?"""
                 repo = self.tools.git.Repo(cached_template)
                 # Raises ValueError if "origin" isn't a valid remote
                 remote = repo.remote(name="origin")
+                # Ensure the existing repo's origin URL points to the location
+                # being requested. A difference can occur, for instance, if a
+                # fork of the template is used.
+                remote.set_url(new_url=template, old_url=remote.url)
                 try:
                     # Attempt to update the repository
                     remote.fetch()
@@ -912,7 +915,7 @@ Did you run Briefcase in a project directory that contains {filename.name!r}?"""
             template=template, branch=branch
         )
 
-        configure_cookiecutter_logger("DEBUG" if self.logger.is_deep_debug else "INFO")
+        self.logger.configure_stdlib_logging("cookiecutter")
 
         try:
             # Unroll the template

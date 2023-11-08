@@ -85,13 +85,11 @@ class AppPackagesMergeMixin:
             ) from e
         else:
             if output.startswith("Non-fat file: "):
-                if self.logger.verbosity >= 1:
-                    self.logger.info(f"{path} is already thin.")
+                self.logger.verbose(f"{path} is already thin.")
             elif output.startswith("Architectures in the fat file: "):
                 architectures = set(output.strip().split(":")[-1].strip().split(" "))
                 if arch in architectures:
-                    if self.logger.verbosity >= 1:
-                        self.logger.info(f"Thinning {path}")
+                    self.logger.verbose(f"Thinning {path}")
                     try:
                         thin_lib_path = path.parent / f"{path.name}.{arch}"
                         self.tools.subprocess.run(
@@ -129,8 +127,7 @@ class AppPackagesMergeMixin:
         :param target_path: The root location where the fat library will be written
         :param sources: A list of root locations providing single platform libraries.
         """
-        if self.logger.verbosity >= 1:
-            self.logger.info(f"Creating fat library {relative_path}")
+        self.logger.verbose(f"Creating fat library {relative_path}")
 
         try:
             # Ensure the directory where the library will be written exists.
@@ -243,9 +240,9 @@ class AppPackagesMergeMixin:
                                     f"between sources; ignoring {source_app_packages.suffix[1:]} version."
                                 )
                         else:
-                            # The file doesn't exist yet; copy it as is, and store the
-                            # digest for later comparison
-                            self.tools.shutil.copyfile(source_path, target_path)
+                            # The file doesn't exist yet; copy it as is (including
+                            # permissions), and store the digest for later comparison
+                            self.tools.shutil.copy(source_path, target_path)
                             digests[relative_path] = sha256_file_digest(source_path)
 
         # Call lipo on each dylib that was found to create the fat version.
