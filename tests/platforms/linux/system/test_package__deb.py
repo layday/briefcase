@@ -58,41 +58,49 @@ def test_verify_no_docker(monkeypatch, package_command, first_app_deb):
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of dpkg-deb
-    dpkg_deb = mock.MagicMock()
-    dpkg_deb.exists.return_value = True
-
-    mock_Path = mock.MagicMock(return_value=dpkg_deb)
-    monkeypatch.setattr(system, "Path", mock_Path)
+    # Mock the existence of dpkg-deb
+    package_command.tools.shutil.which = mock.MagicMock(return_value="/mybin/dpkg-deb")
 
     # App tools can be verified
     package_command.verify_app_tools(first_app_deb)
 
     # dpkg_deb was inspected
-    dpkg_deb.exists.assert_called_once()
+    package_command.tools.shutil.which.assert_called_once_with("dpkg-deb")
 
 
-def test_verify_dpkg_deb_missing(monkeypatch, package_command, first_app_deb):
-    """If dpkg_deb isn't installed, an error is raised."""
+@pytest.mark.parametrize(
+    "vendor_base, error_msg",
+    [
+        (
+            "debian",
+            "Can't find the dpkg tools. Try running `sudo apt install dpkg-dev`.",
+        ),
+        (None, "Can't find the dpkg-deb tool. Install this first to package the deb."),
+    ],
+)
+def test_verify_dpkg_deb_missing(
+    monkeypatch,
+    package_command,
+    first_app_deb,
+    vendor_base,
+    error_msg,
+):
+    """If dpkg-deb isn't installed, an error is raised."""
+    # Mock distro so packager is found or not appropriately
+    first_app_deb.target_vendor_base = vendor_base
+
+    # Mock packager as missing
+    package_command.tools.shutil.which = mock.MagicMock(return_value="")
+
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of dpkg-deb
-    dpkg_deb = mock.MagicMock()
-    dpkg_deb.exists.return_value = False
-
-    mock_Path = mock.MagicMock(return_value=dpkg_deb)
-    monkeypatch.setattr(system, "Path", mock_Path)
-
     # Verifying app tools will raise an error
-    with pytest.raises(
-        BriefcaseCommandError,
-        match=r"Can't find the dpkg tools. Try running `sudo apt install dpkg-dev`.",
-    ):
+    with pytest.raises(BriefcaseCommandError, match=error_msg):
         package_command.verify_app_tools(first_app_deb)
 
-    # dpkg_deb was inspected
-    dpkg_deb.exists.assert_called_once()
+    # which was called for dpkg-deb
+    package_command.tools.shutil.which.assert_called_once_with("dpkg-deb")
 
 
 def test_verify_docker(monkeypatch, package_command, first_app_deb):
@@ -124,18 +132,14 @@ def test_verify_docker(monkeypatch, package_command, first_app_deb):
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build debs on Windows")
 def test_deb_package(package_command, first_app_deb, tmp_path):
     """A deb app can be packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Package the app
     package_command.package_app(first_app_deb)
 
     # The control file is written
-    assert (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").exists()
-    with (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "first-app-0.0.1/DEBIAN/control").exists()
+    with (bundle_path / "first-app-0.0.1/DEBIAN/control").open(encoding="utf-8") as f:
         assert (
             f.read()
             == "\n".join(
@@ -181,23 +185,17 @@ def test_deb_package(package_command, first_app_deb, tmp_path):
 
 def test_deb_re_package(package_command, first_app_deb, tmp_path):
     """A deb app that has previously been packaged can be re-packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Create an old control file that will be overwritten.
-    create_file(
-        bundle_path / "first-app-0.0.1" / "DEBIAN" / "control", "Old control content"
-    )
+    create_file(bundle_path / "first-app-0.0.1/DEBIAN/control", "Old control content")
 
     # Package the app
     package_command.package_app(first_app_deb)
 
     # The control file is re-written
-    assert (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").exists()
-    with (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "first-app-0.0.1/DEBIAN/control").exists()
+    with (bundle_path / "first-app-0.0.1/DEBIAN/control").open(encoding="utf-8") as f:
         assert (
             f.read()
             == "\n".join(
@@ -243,9 +241,7 @@ def test_deb_re_package(package_command, first_app_deb, tmp_path):
 
 def test_deb_package_no_long_description(package_command, first_app_deb, tmp_path):
     """A deb app without a long description raises an error."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Delete the long description
     first_app_deb.long_description = None
@@ -258,7 +254,7 @@ def test_deb_package_no_long_description(package_command, first_app_deb, tmp_pat
         package_command.package_app(first_app_deb)
 
     # The control file won't be written
-    assert not (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").exists()
+    assert not (bundle_path / "first-app-0.0.1/DEBIAN/control").exists()
 
 
 @pytest.mark.parametrize(
@@ -279,9 +275,7 @@ def test_multiline_long_description(input, output):
 def test_deb_package_extra_requirements(package_command, first_app_deb, tmp_path):
     """A deb app can be packaged with extra runtime requirements and configuration
     options."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Add system requirements and other optional settings.
     first_app_deb.system_runtime_requires = ["first", "second (>=1.2.3)"]
@@ -292,10 +286,8 @@ def test_deb_package_extra_requirements(package_command, first_app_deb, tmp_path
     package_command.package_app(first_app_deb)
 
     # The control file is written
-    assert (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").exists()
-    with (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "first-app-0.0.1/DEBIAN/control").exists()
+    with (bundle_path / "first-app-0.0.1/DEBIAN/control").open(encoding="utf-8") as f:
         assert (
             f.read()
             == "\n".join(
@@ -341,9 +333,7 @@ def test_deb_package_extra_requirements(package_command, first_app_deb, tmp_path
 
 def test_deb_package_failure(package_command, first_app_deb, tmp_path):
     """If a packaging doesn't succeed, an error is raised."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Mock a packaging failure
     package_command.tools.app_tools[
@@ -359,10 +349,8 @@ def test_deb_package_failure(package_command, first_app_deb, tmp_path):
         package_command.package_app(first_app_deb)
 
     # The control file is written
-    assert (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").exists()
-    with (bundle_path / "first-app-0.0.1" / "DEBIAN" / "control").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "first-app-0.0.1/DEBIAN/control").exists()
+    with (bundle_path / "first-app-0.0.1/DEBIAN/control").open(encoding="utf-8") as f:
         assert (
             f.read()
             == "\n".join(

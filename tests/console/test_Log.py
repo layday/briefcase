@@ -177,6 +177,7 @@ def test_save_log_to_file_no_exception(mock_now, command, tmp_path):
     logger.error("this is error output")
     logger.print("this is print output")
     logger.print.to_log("this is log output")
+    logger.print.to_log(f"{chr(7)}this is sanitized log output: \u001b[31mred")
     logger.print.to_console("this is console output")
 
     logger.info("this is [bold]info output with markup[/bold]")
@@ -191,7 +192,7 @@ def test_save_log_to_file_no_exception(mock_now, command, tmp_path):
     )
     logger.save_log_to_file(command=command)
 
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
 
     assert log_filepath.exists()
     with open(log_filepath, encoding="utf-8") as log:
@@ -206,6 +207,7 @@ def test_save_log_to_file_no_exception(mock_now, command, tmp_path):
     assert "this is error output" in log_contents
     assert "this is print output" in log_contents
     assert "this is log output" in log_contents
+    assert "this is sanitized log output: red" in log_contents
     assert "this is console output" not in log_contents
     # Environment variables are in the output
     assert "ANDROID_HOME=/androidsdk" in log_contents
@@ -228,7 +230,7 @@ def test_save_log_to_file_with_exception(mock_now, command, tmp_path):
         logger.capture_stacktrace()
     logger.save_log_to_file(command=command)
 
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
 
     assert log_filepath.exists()
     with open(log_filepath, encoding="utf-8") as log:
@@ -252,7 +254,7 @@ def test_save_log_to_file_with_multiple_exceptions(mock_now, command, tmp_path):
 
     logger.save_log_to_file(command=command)
 
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
 
     assert log_filepath.exists()
     with open(log_filepath, encoding="utf-8") as log:
@@ -283,7 +285,7 @@ def test_save_log_to_file_extra(mock_now, command, tmp_path):
     for extra in [extra1, extra2, extra3]:
         logger.add_log_file_extra(extra)
     logger.save_log_to_file(command=command)
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
     with open(log_filepath, encoding="utf-8") as log:
         log_contents = log.read()
 
@@ -308,7 +310,7 @@ def test_save_log_to_file_extra_interrupted(mock_now, command, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         logger.save_log_to_file(command=command)
     extra2.assert_not_called()
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
     assert log_filepath.stat().st_size == 0
 
 
@@ -371,7 +373,7 @@ def test_save_log_to_file_fail_to_write_file(
     logger.print("a line of output")
     logger.save_log_to_file(command=command)
 
-    log_filepath = tmp_path / "logs" / "briefcase.2022_06_25-16_12_29.dev.log"
+    log_filepath = tmp_path / "logs/briefcase.2022_06_25-16_12_29.dev.log"
     assert capsys.readouterr().out == "\n".join(
         [
             "a line of output",

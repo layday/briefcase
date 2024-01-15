@@ -1,12 +1,13 @@
 import copy
 import keyword
 import re
+import sys
 import unicodedata
 from types import SimpleNamespace
 
-try:
+if sys.version_info >= (3, 11):  # pragma: no-cover-if-lt-py311
     import tomllib
-except ModuleNotFoundError:  # pragma: no-cover-if-gte-py310
+else:  # pragma: no-cover-if-gte-py311
     import tomli as tomllib
 
 from briefcase.platforms import get_output_formats, get_platforms
@@ -190,6 +191,7 @@ class AppConfig(BaseConfig):
         icon=None,
         splash=None,
         document_type=None,
+        permission=None,
         template=None,
         template_branch=None,
         test_sources=None,
@@ -217,6 +219,7 @@ class AppConfig(BaseConfig):
         self.icon = icon
         self.splash = splash
         self.document_types = {} if document_type is None else document_type
+        self.permission = {} if permission is None else permission
         self.template = template
         self.template_branch = template_branch
         self.test_sources = test_sources
@@ -345,11 +348,24 @@ def merge_config(config, data):
         situ.
     :param data: The new configuration data to merge into the configuration.
     """
-    for option in ["requires", "sources", "test_requires", "test_sources"]:
+    # Properties that are cumulative lists
+    for option in [
+        "requires",
+        "sources",
+        "test_requires",
+        "test_sources",
+    ]:
         value = data.pop(option, [])
 
         if value:
             config.setdefault(option, []).extend(value)
+
+    # Properties that are cumulative tables
+    for option in ["permission"]:
+        value = data.pop(option, {})
+
+        if value:
+            config.setdefault(option, {}).update(value)
 
     config.update(data)
 

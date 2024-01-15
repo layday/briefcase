@@ -27,9 +27,7 @@ def package_command(monkeypatch, first_app, tmp_path):
     command.verify_system_packages = mock.MagicMock()
 
     # Mock the packaging tools.
-    command._verify_deb_tools = mock.MagicMock()
-    command._verify_rpm_tools = mock.MagicMock()
-    command._verify_pkg_tools = mock.MagicMock()
+    command._verify_packaging_tools = mock.MagicMock()
 
     return command
 
@@ -90,7 +88,7 @@ def test_distribution_path(
 
     assert (
         package_command.distribution_path(first_app)
-        == tmp_path / "base_path" / "dist" / filename
+        == tmp_path / "base_path/dist" / filename
     )
 
     # Confirm ABI was requested from build env

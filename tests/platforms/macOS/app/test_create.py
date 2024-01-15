@@ -28,6 +28,264 @@ def create_command(tmp_path, first_app_templated):
 
 
 @pytest.mark.parametrize(
+    "permissions, info, entitlements, context",
+    [
+        # No permissions
+        (
+            {},
+            {},
+            {},
+            {
+                "info": {},
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                },
+            },
+        ),
+        # Only custom permissions
+        (
+            {},
+            {
+                "NSCustomPermission": "Custom message",
+            },
+            {
+                "com.apple.vm.networking": True,
+            },
+            {
+                "info": {
+                    "NSCustomPermission": "Custom message",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.vm.networking": True,
+                },
+            },
+        ),
+        # Camera permissions
+        (
+            {
+                "camera": "I need to see you",
+            },
+            {},
+            {},
+            {
+                "info": {},
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.device.camera": True,
+                },
+            },
+        ),
+        # Microphone permissions
+        (
+            {
+                "microphone": "I need to hear you",
+            },
+            {},
+            {},
+            {
+                "info": {},
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.device.microphone": True,
+                },
+            },
+        ),
+        # Coarse location permissions
+        (
+            {
+                "coarse_location": "I need to know roughly where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I need to know roughly where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Fine location permissions
+        (
+            {
+                "fine_location": "I need to know exactly where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I need to know exactly where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Background location permissions
+        (
+            {
+                "background_location": "I always need to know where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I always need to know where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Coarse location background permissions
+        (
+            {
+                "coarse_location": "I need to know roughly where you are",
+                "background_location": "I always need to know where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I always need to know where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Fine location background permissions
+        (
+            {
+                "fine_location": "I need to know exactly where you are",
+                "background_location": "I always need to know where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I always need to know where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Coarse and fine location permissions
+        (
+            {
+                "coarse_location": "I need to know roughly where you are",
+                "fine_location": "I need to know exactly where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I need to know exactly where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Coarse and fine background location permissions
+        (
+            {
+                "coarse_location": "I need to know roughly where you are",
+                "fine_location": "I need to know exactly where you are",
+                "background_location": "I always need to know where you are",
+            },
+            {},
+            {},
+            {
+                "info": {
+                    "NSLocationUsageDescription": "I always need to know where you are",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.location": True,
+                },
+            },
+        ),
+        # Photo library permissions
+        (
+            {
+                "photo_library": "I need to see your library",
+            },
+            {},
+            {},
+            {
+                "info": {},
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": True,
+                    "com.apple.security.personal-information.photo_library": True,
+                },
+            },
+        ),
+        # Override and augment by cross-platform definitions
+        (
+            {
+                "fine_location": "I need to know where you are",
+            },
+            {
+                "NSCustomMessage": "Custom message",
+                "NSLocationUsageDescription": "Platform specific",
+            },
+            {
+                "com.apple.security.personal-information.location": False,
+                "com.apple.security.cs.disable-library-validation": False,
+                "com.apple.vm.networking": True,
+            },
+            {
+                "info": {
+                    "NSLocationUsageDescription": "Platform specific",
+                    "NSCustomMessage": "Custom message",
+                },
+                "entitlements": {
+                    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+                    "com.apple.security.cs.disable-library-validation": False,
+                    "com.apple.security.personal-information.location": False,
+                    "com.apple.vm.networking": True,
+                },
+            },
+        ),
+    ],
+)
+def test_permissions_context(
+    create_command, first_app, permissions, info, entitlements, context
+):
+    """Platform-specific permissions can be added to the context."""
+    # Set the permission, info and entitlement values
+    first_app.permission = permissions
+    first_app.info = info
+    first_app.entitlement = entitlements
+    # Extract the cross-platform permissions
+    x_permissions = create_command._x_permissions(first_app)
+    # Check that the final platform permissions are rendered as expected.
+    assert context == create_command.permissions_context(first_app, x_permissions)
+
+
+@pytest.mark.parametrize(
     "host_arch, other_arch",
     [
         ("arm64", "x86_64"),
@@ -42,7 +300,7 @@ def test_install_app_packages(
     other_arch,
 ):
     """A 2-pass install of app packages is performed."""
-    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
+    bundle_path = tmp_path / "base_path/build/first-app/macos/app"
 
     create_command.tools.host_arch = host_arch
     first_app_templated.requires = ["first", "second==1.2.3", "third>=3.2.1"]
@@ -119,7 +377,7 @@ def test_install_app_packages(
             encoding="UTF-8",
             env={
                 "PYTHONPATH": str(
-                    bundle_path / "support" / "platform-site" / f"macosx.{other_arch}"
+                    bundle_path / "support/platform-site" / f"macosx.{other_arch}"
                 )
             },
         ),
@@ -164,7 +422,7 @@ def test_install_app_packages_no_binary(
     other_arch,
 ):
     """If there's no binaries in the first pass, the second pass isn't performed."""
-    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
+    bundle_path = tmp_path / "base_path/build/first-app/macos/app"
 
     # Create pre-existing other-arch content
     create_installed_package(bundle_path / f"app_packages.{other_arch}", "legacy")
@@ -240,7 +498,7 @@ def test_install_app_packages_no_binary(
 
 def test_install_app_packages_failure(create_command, first_app_templated, tmp_path):
     """If the install of other-arch binaries fails, an exception is raised."""
-    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
+    bundle_path = tmp_path / "base_path/build/first-app/macos/app"
 
     # Create pre-existing other-arch content
     create_installed_package(bundle_path / "app_packages.x86_64", "legacy")
@@ -335,9 +593,7 @@ def test_install_app_packages_failure(create_command, first_app_templated, tmp_p
             check=True,
             encoding="UTF-8",
             env={
-                "PYTHONPATH": str(
-                    bundle_path / "support" / "platform-site" / "macosx.x86_64"
-                )
+                "PYTHONPATH": str(bundle_path / "support/platform-site/macosx.x86_64")
             },
         ),
     ]
@@ -368,7 +624,7 @@ def test_install_app_packages_non_universal(
 ):
     """If the app is non-universal, only a single install pass occurs, followed by
     thinning."""
-    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
+    bundle_path = tmp_path / "base_path/build/first-app/macos/app"
 
     create_command.tools.host_arch = host_arch
     first_app_templated.requires = ["first", "second==1.2.3", "third>=3.2.1"]
@@ -415,7 +671,7 @@ def test_install_app_packages_non_universal(
 
     # An attempt was made to thin the app packages
     create_command.thin_app_packages.assert_called_once_with(
-        bundle_path / "First App.app" / "Contents" / "Resources" / "app_packages",
+        bundle_path / "First App.app/Contents/Resources/app_packages",
         arch=host_arch,
     )
 
@@ -443,14 +699,12 @@ def test_install_support_package(
     # Mock the thin command so we can confirm if it was invoked.
     create_command.ensure_thin_binary = mock.Mock()
 
-    bundle_path = tmp_path / "base_path" / "build" / "first-app" / "macos" / "app"
-    runtime_support_path = (
-        bundle_path / "First App.app" / "Contents" / "Resources" / "support"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/macos/app"
+    runtime_support_path = bundle_path / "First App.app/Contents/Resources/support"
 
     if pre_existing:
         create_file(
-            runtime_support_path / "python-stdlib" / "old-stdlib",
+            runtime_support_path / "python-stdlib/old-stdlib",
             "Legacy stdlib file",
         )
 
@@ -477,34 +731,34 @@ def test_install_support_package(
     create_command.install_app_support_package(first_app_templated)
 
     # Confirm that the support files have been unpacked into the bundle location
-    assert (bundle_path / "support" / "python-stdlib" / "stdlib.txt").exists()
+    assert (bundle_path / "support/python-stdlib/stdlib.txt").exists()
     assert (
-        bundle_path / "support" / "platform-site" / "macosx.arm64" / "sitecustomize.py"
+        bundle_path / "support/platform-site/macosx.arm64/sitecustomize.py"
     ).exists()
     assert (
-        bundle_path / "support" / "platform-site" / "macosx.x86_64" / "sitecustomize.py"
+        bundle_path / "support/platform-site/macosx.x86_64/sitecustomize.py"
     ).exists()
-    assert (bundle_path / "support" / "Python.xcframework" / "info.plist").exists()
+    assert (bundle_path / "support/Python.xcframework/info.plist").exists()
 
     # The standard library has been copied to the app...
-    assert (runtime_support_path / "python-stdlib" / "stdlib.txt").exists()
+    assert (runtime_support_path / "python-stdlib/stdlib.txt").exists()
     # ... but the other support files have not.
     assert not (
-        runtime_support_path / "platform-site" / "macosx.arm64" / "sitecustomize.py"
+        runtime_support_path / "platform-site/macosx.arm64/sitecustomize.py"
     ).exists()
     assert not (
-        runtime_support_path / "platform-site" / "macosx.x86_64" / "sitecustomize.py"
+        runtime_support_path / "platform-site/macosx.x86_64/sitecustomize.py"
     ).exists()
-    assert not (runtime_support_path / "Python.xcframework" / "info.plist").exists()
+    assert not (runtime_support_path / "Python.xcframework/info.plist").exists()
 
     # The legacy content has been purged
-    assert not (runtime_support_path / "python-stdlib" / "old-stdlib").exists()
+    assert not (runtime_support_path / "python-stdlib/old-stdlib").exists()
 
     # Only thin if this is a non-universal app
     if universal_build:
         create_command.ensure_thin_binary.assert_not_called()
     else:
         create_command.ensure_thin_binary.assert_called_once_with(
-            bundle_path / "First App.app" / "Contents" / "MacOS" / "First App",
+            bundle_path / "First App.app/Contents/MacOS/First App",
             arch="gothic",
         )

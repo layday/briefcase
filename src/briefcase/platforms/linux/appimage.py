@@ -44,7 +44,7 @@ class LinuxAppImagePassiveMixin(LinuxMixin):
 
     def binary_name(self, app):
         safe_name = app.formal_name.replace(" ", "_")
-        arch = LinuxDeploy.arch(self.tools.host_arch)
+        arch = LinuxDeploy.arch(self.tools)
         return f"{safe_name}-{app.version}-{arch}.AppImage"
 
     def binary_path(self, app):
@@ -70,9 +70,9 @@ class LinuxAppImagePassiveMixin(LinuxMixin):
 
     def parse_options(self, extra):
         """Extract the use_docker option."""
-        options = super().parse_options(extra)
+        options, overrides = super().parse_options(extra)
         self.use_docker = options.pop("use_docker")
-        return options
+        return options, overrides
 
     def clone_options(self, command):
         """Clone the use_docker option."""
@@ -175,13 +175,21 @@ class LinuxAppImageCreateCommand(
     def output_format_template_context(self, app: AppConfig):
         context = super().output_format_template_context(app)
 
-        # Add the manylinux tag to the template context.
         try:
-            tag = getattr(app, "manylinux_image_tag", "latest")
             manylinux_arch = {
                 "x86_64": "x86_64",
                 "i386": "i686",
-            }[LinuxDeploy.arch(self.tools.host_arch)]
+                "aarch64": "aarch64",
+            }[LinuxDeploy.arch(self.tools)]
+        except KeyError:
+            manylinux_arch = LinuxDeploy.arch(self.tools)
+            self.logger.warning(
+                f"There is no manylinux base image for {manylinux_arch}"
+            )
+
+        # Add the manylinux tag to the template context.
+        try:
+            tag = getattr(app, "manylinux_image_tag", "latest")
             context["manylinux_image"] = f"{app.manylinux}_{manylinux_arch}:{tag}"
             if app.manylinux in {"manylinux1", "manylinux2010", "manylinux2014"}:
                 context["vendor_base"] = "centos"
@@ -190,9 +198,7 @@ class LinuxAppImageCreateCommand(
             elif app.manylinux.startswith("manylinux_2_"):
                 context["vendor_base"] = "almalinux"
             else:
-                raise BriefcaseConfigError(
-                    f"""Unknown manylinux tag {app.manylinux!r}"""
-                )
+                raise BriefcaseConfigError(f"Unknown manylinux tag {app.manylinux!r}")
         except AttributeError:
             pass
 

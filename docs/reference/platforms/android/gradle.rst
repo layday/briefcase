@@ -97,17 +97,105 @@ for more details on devices, sizes, and display densities. `This list of common
 devices with their sizes and DPI <https://m2.material.io/resources/devices/>`__
 may also be helpful.
 
-You can specify a background color for the splash screen using the
-``splash_background_color`` configuration setting.
-
 Android projects do not support installer images.
+
+Colors
+======
+
+Android allows for some customization of the colors used by your app:
+
+* ``accent_color`` is used as a subtle highlight throughout your app to
+  call attention to key elements. It's used on things like form labels and
+  inputs.
+* ``primary_color`` is the main branding color of the app and is used to
+  color the app bar in the main window.
+* ``primary_color_dark`` is used alongside the primary color to color the
+  status bar at the top of the screen.
+* ``splash_background_color`` is the color of the splash background that
+  displays while an app is loading.
 
 Application configuration
 =========================
 
-The following options can be added to the
-``tool.briefcase.app.<appname>.android`` section of your ``pyproject.toml``
-file.
+The following options can be added to the ``tool.briefcase.app.<appname>.android``
+section of your ``pyproject.toml`` file.
+
+``android_manifest_attrs_extra_content``
+----------------------------------------
+
+Additional attributes that will be added verbatim to the ``<manifest>`` declaration of
+the ``AndroidManifest.xml`` of your app.
+
+``android_manifest_extra_content``
+----------------------------------
+
+Additional content that will be added verbatim just before the closing ``</manifest>``
+declaration of the ``AndroidManifest.xml`` of your app.
+
+``android_manifest_application_attrs_extra_content``
+----------------------------------------------------
+
+Additional attributes that will be added verbatim to the ``<application>`` declaration
+of the ``AndroidManifest.xml`` of your app.
+
+``android_manifest_application_extra_content``
+----------------------------------------------
+
+Additional content that will be added verbatim just before the closing
+``</application>`` declaration of the ``AndroidManifest.xml`` of your app.
+
+``android_manifest_activity_attrs_extra_content``
+-------------------------------------------------
+
+Additional attributes that will be added verbatim to the ``<activity>`` declaration of
+the ``AndroidManifest.xml`` of your app.
+
+``android_manifest_activity_extra_content``
+-------------------------------------------
+
+Additional content that will be added verbatim just before the closing ``</activity>``
+declaration of the ``AndroidManifest.xml`` of your app.
+
+``build_gradle_extra_content``
+------------------------------
+
+A string providing additional Gradle settings to use when building your app.
+This will be added verbatim to the end of your ``app/build.gradle`` file.
+
+``feature``
+-----------
+
+A property whose sub-properties define the features that will be marked as required by
+the final app. Each entry will be converted into a ``<uses-feature>`` declaration in
+your app's ``AndroidManifest.xml``, with the feature name matching the name of the
+sub-attribute.
+
+For example, specifying::
+
+    feature."android.hardware.bluetooth" = true
+
+will result in an ``AndroidManifest.xml`` declaration of::
+
+    <uses-feature android:name="android.hardware.bluetooth" android:required="true">
+
+The use of some cross-platform permissions will imply the addition of features; see
+:ref:`the discussion on Android permissions <android-permissions>` for more details.
+
+``permission``
+--------------
+
+A property whose sub-properties define the platform-specific permissions that will be
+marked as required by the final app. Each entry will be converted into a
+``<uses-permission>`` declaration in your app's ``AndroidManifest.xml``, with the
+feature name matching the name of the sub-attribute.
+
+For example, specifying::
+
+    permission."android.permission.HIGH_SAMPLING_RATE_SENSORS" = true
+
+will result in an ``AndroidManifest.xml`` declaration of::
+
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS">
 
 ``version_code``
 ----------------
@@ -185,18 +273,47 @@ continue to run in the background, but there will be no visual manifestation
 that it is running. It may also be useful as a cleanup mechanism when running
 in a CI configuration.
 
-Application configuration
-=========================
+.. _android-permissions:
 
-The following options can be added to the
-``tool.briefcase.app.<appname>.android`` section of your ``pyproject.toml``
-file:
+Permissions
+===========
 
-``build_gradle_extra_content``
-------------------------------
+Briefcase cross platform permissions map to ``<uses-permission>`` declarations in the
+app's ``AppManifest.xml``:
 
-A string providing additional Gradle settings to use when building your app.
-This will be added verbatim to the end of your ``app/build.gradle`` file.
+* ``camera``: ``android.permission.CAMERA``
+* ``microphone``: ``android.permission.RECORD_AUDIO``
+* ``coarse_location``: ``android.permission.ACCESS_COARSE_LOCATION``
+* ``fine_location``: ``android.permission.ACCESS_FINE_LOCATION``
+* ``background_location``: ``android.permission.ACCESS_BACKGROUND_LOCATION``
+* ``photo_library``: ``android.permission.READ_MEDIA_VISUAL_USER_SELECTED``
+
+Every application will be automatically granted the ``android.permission.INTERNET`` and
+``android.permission.NETWORK_STATE`` permissions.
+
+Specifying a ``camera`` permission will result in the following non-required ``feature``
+definitions being implicitly added to your app:
+
+* ``android.hardware.camera``,
+* ``android.hardware.camera.any``,
+* ``android.hardware.camera.front``,
+* ``android.hardware.camera.external`` and
+* ``android.hardware.camera.autofocus``.
+
+Specifying the ``coarse_location``, ``fine_location`` or ``background_location``
+permissions will result in the following non-required ``feature`` declarations being
+implicitly added to your app:
+
+* ``android.hardware.location.network``
+* ``android.hardware.location.gps``
+
+This is done to ensure that an app is not prevented from installing if the device
+doesn't have the given features. You can make the feature explicitly required by
+manually defining these feature requirements. For example, to make GPS hardware
+required, you could add the following to the Android section of your
+``pyproject.toml``::
+
+    feature."android.hardware.location.gps" = True
 
 Platform quirks
 ===============
@@ -221,7 +338,7 @@ a binary component.
 If the package contains a binary component, that wheel needs to be compiled for Android.
 PyPI does not currently support uploading Android-compatible wheels, so you can't rely
 on PyPI to provide those wheels. Briefcase uses a `secondary repository
-<https://chaquo.com/pypi-7.0/>`__ to provide pre-compiled Android wheels.
+<https://chaquo.com/pypi-13.1/>`__ to provide pre-compiled Android wheels.
 
 This repository is maintained by the BeeWare project, and as a result, it does not have
 binary wheels for *every* package that is available on PyPI, or even every *version* of
@@ -245,7 +362,7 @@ build an Android wheel.
 The `Chaquopy repository <https://github.com/chaquo/chaquopy/blob/master/server/pypi/README.md>`__
 contains tools to assist with cross-compiling Android binary wheels. This repository contains
 recipes for building the packages that are stored in the `secondary package repository
-<https://chaquo.com/pypi-7.0/>`__. Contributions of new package recipes are welcome, and
+<https://chaquo.com/pypi-13.1/>`__. Contributions of new package recipes are welcome, and
 can be submitted as pull requests. Or, if you have a particular package that you'd like
 us to support, please visit the `issue tracker
 <https://github.com/chaquo/chaquopy/issues>`__ and provide details about that package.

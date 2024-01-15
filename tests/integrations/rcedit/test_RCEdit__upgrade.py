@@ -5,7 +5,7 @@ from briefcase.exceptions import MissingToolError, NetworkFailure
 
 def test_upgrade_exists(mock_tools, rcedit, tmp_path):
     """If rcedit already exists, upgrading deletes first."""
-    rcedit_path = tmp_path / "tools" / "rcedit-x64.exe"
+    rcedit_path = tmp_path / "tools/rcedit-x64.exe"
 
     # Mock the existence of an install
     rcedit_path.touch()
@@ -26,7 +26,7 @@ def test_upgrade_exists(mock_tools, rcedit, tmp_path):
     # A download is invoked
     mock_tools.download.file.assert_called_with(
         url="https://github.com/electron/rcedit/"
-        "releases/download/v1.1.1/rcedit-x64.exe",
+        "releases/download/v2.0.0/rcedit-x64.exe",
         download_path=tmp_path / "tools",
         role="RCEdit",
     )
@@ -45,7 +45,7 @@ def test_upgrade_does_not_exist(mock_tools, rcedit, tmp_path):
 def test_upgrade_rcedit_download_failure(mock_tools, rcedit, tmp_path):
     """If rcedit doesn't exist, but a download failure occurs, an error is raised."""
     # Mock the existence of an install
-    rcedit_path = tmp_path / "tools" / "rcedit-x64.exe"
+    rcedit_path = tmp_path / "tools/rcedit-x64.exe"
     rcedit_path.touch()
 
     mock_tools.download.file.side_effect = NetworkFailure("mock")
@@ -60,7 +60,7 @@ def test_upgrade_rcedit_download_failure(mock_tools, rcedit, tmp_path):
     # A download was invoked
     mock_tools.download.file.assert_called_with(
         url="https://github.com/electron/rcedit/"
-        "releases/download/v1.1.1/rcedit-x64.exe",
+        "releases/download/v2.0.0/rcedit-x64.exe",
         download_path=tmp_path / "tools",
         role="RCEdit",
     )

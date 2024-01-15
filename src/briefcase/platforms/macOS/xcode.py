@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import subprocess
 
 from briefcase.commands import (
@@ -13,7 +15,7 @@ from briefcase.config import BaseConfig
 from briefcase.exceptions import BriefcaseCommandError
 from briefcase.integrations.xcode import Xcode
 from briefcase.platforms.macOS import (
-    macOSInstallMixin,
+    macOSCreateMixin,
     macOSMixin,
     macOSPackageMixin,
     macOSRunMixin,
@@ -39,10 +41,10 @@ class macOSXcodeMixin(macOSMixin):
         return self.bundle_path(app) / f"{app.formal_name}.xcodeproj"
 
     def binary_path(self, app):
-        return self.bundle_path(app) / "build" / "Release" / f"{app.formal_name}.app"
+        return self.bundle_path(app) / "build/Release" / f"{app.formal_name}.app"
 
 
-class macOSXcodeCreateCommand(macOSXcodeMixin, macOSInstallMixin, CreateCommand):
+class macOSXcodeCreateCommand(macOSXcodeMixin, macOSCreateMixin, CreateCommand):
     description = "Create and populate a macOS Xcode project."
 
 

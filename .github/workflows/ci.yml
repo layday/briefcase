@@ -34,6 +34,8 @@ jobs:
   package:
     name: Python package
     uses: beeware/.github/.github/workflows/python-package-create.yml@main
+    with:
+      tox-factors: -with-automation
 
   unit-tests:
     name: Unit tests
@@ -50,10 +52,6 @@ jobs:
         # Allow dev Python to fail without failing entire job
         #- python-version: "3.13-dev"
         #  experimental: true
-        # Run tests against the latest Windows Store Python
-        - platform: "windows"
-          python-version: "winstore3.12"
-          experimental: false
     steps:
     - name: Checkout
       uses: actions/checkout@v4.1.1
@@ -61,19 +59,12 @@ jobs:
         fetch-depth: 0
 
     - name: Set up Python
-      if: startswith(matrix.python-version, '3')
-      uses: actions/setup-python@v4.7.1
+      uses: actions/setup-python@v5.0.0
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install Windows Store Python
-      if: startswith(matrix.python-version, 'winstore')
-      uses: beeware/.github/.github/actions/install-win-store-python@main
-      with:
-        python-version: "3.12"
-
     - name: Get Packages
-      uses: actions/download-artifact@v3.0.2
+      uses: actions/download-artifact@v4.1.1
       with:
         name: ${{ needs.package.outputs.artifact-name }}
         path: dist
@@ -93,9 +84,9 @@ jobs:
 
     - name: Store Coverage Data
       if: always() && contains('success,failure', steps.test.outcome)
-      uses: actions/upload-artifact@v3.1.3
+      uses: actions/upload-artifact@v4.1.0
       with:
-        name: coverage-data
+        name: coverage-data-${{ matrix.platform }}-${{ matrix.python-version }}
         path: ".coverage.*"
         if-no-files-found: ignore
 
@@ -103,7 +94,7 @@ jobs:
       id: coverage
       if: always() && contains('success,failure', steps.test.outcome)
       # coverage reporting must use the same Python version used to produce coverage
-      run: tox -qe coverage$(echo '${{ matrix.python-version }}' | tr -dc '0-9')
+      run: tox -qe coverage$(tr -dc "0-9" <<< "${{ matrix.python-version }}")
 
   coverage:
     name: Project coverage
@@ -117,7 +108,7 @@ jobs:
         fetch-depth: 0
 
     - name: Setup Python
-      uses: actions/setup-python@v4.7.1
+      uses: actions/setup-python@v5.0.0
       with:
         # Use minimum version of python for coverage to avoid phantom branches
         # https://github.com/nedbat/coveragepy/issues/1572#issuecomment-1522546425
@@ -131,9 +122,10 @@ jobs:
         python -m install_requirement tox --extra dev
 
     - name: Retrieve Coverage Data
-      uses: actions/download-artifact@v3.0.2
+      uses: actions/download-artifact@v4.1.1
       with:
-        name: coverage-data
+        pattern: coverage-data-*
+        merge-multiple: true
 
     - name: Platform Coverage Reports
       id: platform-coverage
@@ -148,10 +140,23 @@ jobs:
 
     - name: Upload Project Coverage HTML Report
       if: always() && steps.project-coverage.outcome == 'failure'
-      uses: actions/upload-artifact@v3.1.3
+      uses: actions/upload-artifact@v4.1.0
       with:
         name: html-coverage-report-project
         path: htmlcov
+
+  verify-projects:
+    name: Verify project
+    needs: unit-tests
+    uses: beeware/.github/.github/workflows/app-create-verify.yml@main
+    with:
+      runner-os: ${{ matrix.runner-os }}
+      framework: ${{ matrix.framework }}
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [ "toga", "pyside6", "ppb", "pygame" ]
+        runner-os: [ "macos-latest", "ubuntu-22.04", "windows-latest" ]
 
   verify-apps:
     name: Build app
@@ -169,10 +174,5 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        framework: [ "toga", "pyside2", "pyside6", "ppb", "pygame" ]
+        framework: [ "toga", "pyside6", "ppb", "pygame" ]
         runner-os: [ "macos-latest", "ubuntu-22.04", "windows-latest" ]
-        exclude:
-          # Pyside2 doesn't publish ARM64 wheels, and is unlikely to ever do so.
-          # This means we can't make a universal binary.
-          - framework: "pyside2"
-            runner-os: "macos-latest"

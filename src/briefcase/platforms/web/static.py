@@ -9,9 +9,9 @@ from zipfile import ZipFile
 
 from briefcase.console import Log
 
-try:
+if sys.version_info >= (3, 11):  # pragma: no-cover-if-lt-py311
     import tomllib
-except ModuleNotFoundError:  # pragma: no-cover-if-gte-py310
+else:  # pragma: no-cover-if-gte-py311
     import tomli as tomllib
 
 import tomli_w
@@ -37,10 +37,10 @@ class StaticWebMixin:
         return self.bundle_path(app) / "www"
 
     def binary_path(self, app):
-        return self.bundle_path(app) / "www" / "index.html"
+        return self.bundle_path(app) / "www/index.html"
 
     def wheel_path(self, app):
-        return self.project_path(app) / "static" / "wheels"
+        return self.project_path(app) / "static/wheels"
 
     def distribution_path(self, app):
         return self.dist_path / f"{app.formal_name}-{app.version}.web.zip"
@@ -211,9 +211,7 @@ class StaticWebBuildCommand(StaticWebMixin, BuildCommand):
         self.logger.info("Compile static web content from wheels")
         with self.input.wait_bar("Compiling static web content from wheels..."):
             # Trim previously compiled content out of briefcase.css
-            briefcase_css_path = (
-                self.project_path(app) / "static" / "css" / "briefcase.css"
-            )
+            briefcase_css_path = self.project_path(app) / "static/css/briefcase.css"
             self._trim_file(
                 briefcase_css_path,
                 sentinel=" ******************* Wheel contributed styles **********************/",
@@ -290,7 +288,7 @@ class StaticWebRunCommand(StaticWebMixin, RunCommand):
             "--no-browser",
             action="store_false",
             dest="open_browser",
-            help="Don't open a web browser on the newly opened server.",
+            help="Don't open a web browser on the newly opened server",
             required=False,
         )
 
@@ -325,12 +323,27 @@ class StaticWebRunCommand(StaticWebMixin, RunCommand):
         httpd = None
         try:
             # Create a local HTTP server
-            httpd = LocalHTTPServer(
-                self.project_path(app),
-                host=host,
-                port=port,
-                logger=self.logger,
-            )
+            try:
+                httpd = LocalHTTPServer(
+                    self.project_path(app),
+                    host=host,
+                    port=port,
+                    logger=self.logger,
+                )
+            except OSError as e:
+                if e.errno in (errno.EADDRINUSE, errno.ENOSR):
+                    self.logger.warning(
+                        f"Using a system-allocated port since port {port} is already in use. "
+                        "Use -p/--port to manually specify a port."
+                    )
+                    httpd = LocalHTTPServer(
+                        self.project_path(app),
+                        host=host,
+                        port=0,
+                        logger=self.logger,
+                    )
+                else:
+                    raise
 
             # Extract the host and port from the server. This is needed
             # because specifying a port of 0 lets the server pick a port.
@@ -360,11 +373,7 @@ class StaticWebRunCommand(StaticWebMixin, RunCommand):
                     "Unable to start web server; Permission denied. Did you specify a valid host and port?"
                 ) from e
         except OSError as e:
-            if e.errno in (errno.EADDRINUSE, errno.ENOSR):
-                raise BriefcaseCommandError(
-                    f"Unable to start web server. {host}:{port} is already in use."
-                ) from e
-            elif e.errno in (errno.EADDRNOTAVAIL, errno.ENOSTR):
+            if e.errno in (errno.EADDRNOTAVAIL, errno.ENOSTR):
                 raise BriefcaseCommandError(
                     f"Unable to start web server. {host} is not a valid hostname."
                 ) from e

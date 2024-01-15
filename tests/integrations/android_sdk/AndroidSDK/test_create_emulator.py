@@ -65,9 +65,7 @@ def test_create_emulator(
     ]
 
     # Mock the initial output of an AVD config file.
-    avd_config_path = (
-        tmp_path / "home" / ".android" / "avd" / "new-emulator.avd" / "config.ini"
-    )
+    avd_config_path = tmp_path / "home/.android/avd/new-emulator.avd/config.ini"
     avd_config_path.parent.mkdir(parents=True)
     with avd_config_path.open("w", encoding="utf-8") as f:
         f.write("hw.device.name=pixel\n")
@@ -85,7 +83,7 @@ def test_create_emulator(
     android_sdk._create_emulator.assert_called_once_with(
         avd="new-emulator",
         device_type="pixel",
-        skin="pixel_3a",
+        skin="pixel_7_pro",
         system_image=f"system-images;android-31;default;{emulator_abi}",
     )
 

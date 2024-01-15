@@ -13,7 +13,7 @@ from briefcase.commands import (
 )
 from briefcase.config import AppConfig
 from briefcase.platforms.macOS import (
-    macOSInstallMixin,
+    macOSCreateMixin,
     macOSMixin,
     macOSPackageMixin,
     macOSRunMixin,
@@ -31,7 +31,7 @@ class macOSAppMixin(macOSMixin):
         return self.bundle_path(app) / f"{app.formal_name}.app"
 
 
-class macOSAppCreateCommand(macOSAppMixin, macOSInstallMixin, CreateCommand):
+class macOSAppCreateCommand(macOSAppMixin, macOSCreateMixin, CreateCommand):
     description = "Create and populate a macOS app."
 
     # def _extra_pip_args(self, app: AppConfig):
@@ -80,7 +80,7 @@ class macOSAppCreateCommand(macOSAppMixin, macOSInstallMixin, CreateCommand):
                 # The stub binary is universal by default. If we're building a non-universal app,
                 # we can strip the binary to remove the unused slice.
                 self.ensure_thin_binary(
-                    self.binary_path(app) / "Contents" / "MacOS" / app.formal_name,
+                    self.binary_path(app) / "Contents/MacOS" / app.formal_name,
                     arch=self.tools.host_arch,
                 )
 

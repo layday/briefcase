@@ -331,11 +331,11 @@ def test_app_packages_install_requirements(
 
     # The new app packages have installation artefacts created
     assert (app_packages_path / "first").exists()
-    assert (app_packages_path / "first" / "__main__.py").exists()
+    assert (app_packages_path / "first/__main__.py").exists()
     assert (app_packages_path / "second").exists()
-    assert (app_packages_path / "second" / "__main__.py").exists()
+    assert (app_packages_path / "second/__main__.py").exists()
     assert (app_packages_path / "third").exists()
-    assert (app_packages_path / "third" / "__main__.py").exists()
+    assert (app_packages_path / "third/__main__.py").exists()
 
     # Original app definitions haven't changed
     assert myapp.requires == ["first", "second", "third"]
@@ -390,11 +390,11 @@ def test_app_packages_replace_existing_requirements(
 
     # The new app packages have installation artefacts created
     assert (app_packages_path / "first").exists()
-    assert (app_packages_path / "first" / "__main__.py").exists()
+    assert (app_packages_path / "first/__main__.py").exists()
     assert (app_packages_path / "second").exists()
-    assert (app_packages_path / "second" / "__main__.py").exists()
+    assert (app_packages_path / "second/__main__.py").exists()
     assert (app_packages_path / "third").exists()
-    assert (app_packages_path / "third" / "__main__.py").exists()
+    assert (app_packages_path / "third/__main__.py").exists()
 
     # The old app packages no longer exist.
     assert not (app_packages_path / "old").exists()
@@ -545,6 +545,7 @@ def _test_app_requirements_paths(
         "git+https://github.com/project/package@some-branch#egg=my-package",
         # URL references to wheels
         "http://example.com/path/to/mypackage-1.2.3-py3-none-any.whl",
+        "https://example.com/path/to/mypackage-1.2.3-py3-none-any.whl",
         # Zip file source installs
         "my-package @ https://example.com/path/to/1.2.3.zip",
     ],

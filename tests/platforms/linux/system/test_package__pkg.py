@@ -69,14 +69,14 @@ def first_app_pkg(first_app, tmp_path):
     )
 
     # Create the binary
-    create_file(usr_dir / "bin" / "first-app", "binary")
+    create_file(usr_dir / "bin/first-app", "binary")
 
     # Files in an app-named folder
-    create_file(usr_dir / "share" / "doc" / "first-app" / "license", "license")
-    create_file(usr_dir / "share" / "doc" / "first-app" / "UserManual", "manual")
+    create_file(usr_dir / "share/doc/first-app/license", "license")
+    create_file(usr_dir / "share/doc/first-app/UserManual", "manual")
 
     # A share file in an app-named folder
-    create_file(usr_dir / "share" / "man" / "man1" / "first-app.1.gz", "man")
+    create_file(usr_dir / "share/man/man1/first-app.1.gz", "man")
 
     return first_app
 
@@ -86,41 +86,49 @@ def test_verify_no_docker(monkeypatch, package_command, first_app_pkg):
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of makepkg
-    makepkg = mock.MagicMock()
-    makepkg.exists.return_value = True
-
-    mock_Path = mock.MagicMock(return_value=makepkg)
-    monkeypatch.setattr(system, "Path", mock_Path)
+    # Mock the existence of makepkg
+    package_command.tools.shutil.which = mock.MagicMock(return_value="/mybin/makepkg")
 
     # App tools can be verified
     package_command.verify_app_tools(first_app_pkg)
 
     # makepkg was inspected
-    makepkg.exists.assert_called_once()
+    package_command.tools.shutil.which.assert_called_once_with("makepkg")
 
 
-def test_verify_makepkg_missing(monkeypatch, package_command, first_app_pkg):
+@pytest.mark.parametrize(
+    "vendor_base, error_msg",
+    [
+        (
+            "arch",
+            "Can't find the makepkg tools. Try running `sudo pacman -Syu pacman`.",
+        ),
+        (None, "Can't find the makepkg tool. Install this first to package the pkg."),
+    ],
+)
+def test_verify_makepkg_missing(
+    monkeypatch,
+    package_command,
+    first_app_pkg,
+    vendor_base,
+    error_msg,
+):
     """If makepkg isn't installed, an error is raised."""
+    # Mock distro so packager is found or not appropriately
+    first_app_pkg.target_vendor_base = vendor_base
+
+    # Mock packager as missing
+    package_command.tools.shutil.which = mock.MagicMock(return_value="")
+
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of makepkg
-    makepkg = mock.MagicMock()
-    makepkg.exists.return_value = False
-
-    mock_Path = mock.MagicMock(return_value=makepkg)
-    monkeypatch.setattr(system, "Path", mock_Path)
-
     # Verifying app tools will raise an error
-    with pytest.raises(
-        BriefcaseCommandError,
-        match=r"Can't find the `makepkg` tool. Try running `sudo pacman -Syu pacman`.",
-    ):
+    with pytest.raises(BriefcaseCommandError, match=error_msg):
         package_command.verify_app_tools(first_app_pkg)
 
-    # makepkg was inspected
-    makepkg.exists.assert_called_once()
+    # which was called for makepkg
+    package_command.tools.shutil.which.assert_called_once_with("makepkg")
 
 
 def test_verify_docker(monkeypatch, package_command, first_app_pkg):
@@ -152,19 +160,17 @@ def test_verify_docker(monkeypatch, package_command, first_app_pkg):
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_pkg_package(package_command, first_app_pkg, tmp_path):
     """A pkg app can be packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Package the app
     package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file is copied
-    assert (bundle_path / "pkgbuild" / "CHANGELOG").exists()
+    assert (bundle_path / "pkgbuild/CHANGELOG").exists()
 
     # The PKGBUILD file is written
-    assert (bundle_path / "pkgbuild" / "PKGBUILD").exists()
-    with (bundle_path / "pkgbuild" / "PKGBUILD").open(encoding="utf-8") as f:
+    assert (bundle_path / "pkgbuild/PKGBUILD").exists()
+    with (bundle_path / "pkgbuild/PKGBUILD").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "# Maintainer: Megacorp <maintainer@example.com>",
@@ -188,7 +194,7 @@ def test_pkg_package(package_command, first_app_pkg, tmp_path):
         )
 
     # A source tarball was created with the right content
-    archive_file = bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "pkgbuild/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
     with tarfile.open(archive_file, "r:gz") as archive:
         assert sorted(archive.getnames()) == [
@@ -232,25 +238,23 @@ def test_pkg_package(package_command, first_app_pkg, tmp_path):
 
     # The pkg was moved into the final location
     package_command.tools.shutil.move.assert_called_once_with(
-        bundle_path / "pkgbuild" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
+        bundle_path / "pkgbuild/first-app-0.0.1-1-wonky.pkg.tar.zst",
+        tmp_path / "base_path/dist/first-app-0.0.1-1-wonky.pkg.tar.zst",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_pkg_re_package(package_command, first_app_pkg, tmp_path):
     """A pkg app that has previously been packaged can be re-packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Create an old PKGBUILD file and tarball that will be overwritten.
     create_file(
-        bundle_path / "pkgbuild" / "PKGBUILD",
+        bundle_path / "pkgbuild/PKGBUILD",
         "Old PKGBUILD content",
     )
     create_tgz_file(
-        bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz",
+        bundle_path / "pkgbuild/first-app-0.0.1.tar.gz",
         [("old.txt", "old content")],
     )
 
@@ -258,11 +262,11 @@ def test_pkg_re_package(package_command, first_app_pkg, tmp_path):
     package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file is copied
-    assert (bundle_path / "pkgbuild" / "CHANGELOG").exists()
+    assert (bundle_path / "pkgbuild/CHANGELOG").exists()
 
     # The PKGBUILD file is written
-    assert (bundle_path / "pkgbuild" / "PKGBUILD").exists()
-    with (bundle_path / "pkgbuild" / "PKGBUILD").open(encoding="utf-8") as f:
+    assert (bundle_path / "pkgbuild/PKGBUILD").exists()
+    with (bundle_path / "pkgbuild/PKGBUILD").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "# Maintainer: Megacorp <maintainer@example.com>",
@@ -286,7 +290,7 @@ def test_pkg_re_package(package_command, first_app_pkg, tmp_path):
         )
 
     # A source tarball was created with the right content
-    archive_file = bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "pkgbuild/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
     with tarfile.open(archive_file, "r:gz") as archive:
         assert sorted(archive.getnames()) == [
@@ -330,17 +334,15 @@ def test_pkg_re_package(package_command, first_app_pkg, tmp_path):
 
     # The pkg was moved into the final location
     package_command.tools.shutil.move.assert_called_once_with(
-        bundle_path / "pkgbuild" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
+        bundle_path / "pkgbuild/first-app-0.0.1-1-wonky.pkg.tar.zst",
+        tmp_path / "base_path/dist/first-app-0.0.1-1-wonky.pkg.tar.zst",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_pkg_package_no_description(package_command, first_app_pkg, tmp_path):
     """A pkg app without a description raises an error."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Delete the long description
     first_app_pkg.description = None
@@ -353,17 +355,15 @@ def test_pkg_package_no_description(package_command, first_app_pkg, tmp_path):
         package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file, PKGBUILD file and tarball won't be written
-    assert not (bundle_path / "pkgbuild" / "CHANGELOG").exists()
-    assert not (bundle_path / "pkgbuild" / "PKGBUILD").exists()
-    assert not (bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz").exists()
+    assert not (bundle_path / "pkgbuild/CHANGELOG").exists()
+    assert not (bundle_path / "pkgbuild/PKGBUILD").exists()
+    assert not (bundle_path / "pkgbuild/first-app-0.0.1.tar.gz").exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_pkg_package_extra_requirements(package_command, first_app_pkg, tmp_path):
     """A pkg app can be packaged with extra runtime requirements and config features."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Add system requirements and other optional settings.
     first_app_pkg.system_runtime_requires = ["first", "second"]
@@ -374,11 +374,11 @@ def test_pkg_package_extra_requirements(package_command, first_app_pkg, tmp_path
     package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file is copied
-    assert (bundle_path / "pkgbuild" / "CHANGELOG").exists()
+    assert (bundle_path / "pkgbuild/CHANGELOG").exists()
 
     # The PKGBUILD file is written
-    assert (bundle_path / "pkgbuild" / "PKGBUILD").exists()
-    with (bundle_path / "pkgbuild" / "PKGBUILD").open(encoding="utf-8") as f:
+    assert (bundle_path / "pkgbuild/PKGBUILD").exists()
+    with (bundle_path / "pkgbuild/PKGBUILD").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "# Maintainer: Megacorp <maintainer@example.com>",
@@ -402,7 +402,7 @@ def test_pkg_package_extra_requirements(package_command, first_app_pkg, tmp_path
         )
 
     # A source tarball was created
-    archive_file = bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "pkgbuild/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
 
     # makepkg was invoked
@@ -419,17 +419,15 @@ def test_pkg_package_extra_requirements(package_command, first_app_pkg, tmp_path
 
     # The pkg was moved into the final location
     package_command.tools.shutil.move.assert_called_once_with(
-        bundle_path / "pkgbuild" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-1-wonky.pkg.tar.zst",
+        bundle_path / "pkgbuild/first-app-0.0.1-1-wonky.pkg.tar.zst",
+        tmp_path / "base_path/dist/first-app-0.0.1-1-wonky.pkg.tar.zst",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_pkg_package_failure(package_command, first_app_pkg, tmp_path):
     """If a packaging doesn't succeed, an error is raised."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Mock a packaging failure
     package_command.tools.app_tools[
@@ -446,13 +444,13 @@ def test_pkg_package_failure(package_command, first_app_pkg, tmp_path):
         package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file is copied
-    assert (bundle_path / "pkgbuild" / "CHANGELOG").exists()
+    assert (bundle_path / "pkgbuild/CHANGELOG").exists()
 
     # The PKGBUILD file is written
-    assert (bundle_path / "pkgbuild" / "PKGBUILD").exists()
+    assert (bundle_path / "pkgbuild/PKGBUILD").exists()
 
     # A source tarball was created
-    archive_file = bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "pkgbuild/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
 
     # makepkg was invoked
@@ -474,12 +472,10 @@ def test_pkg_package_failure(package_command, first_app_pkg, tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build PKGs on Windows")
 def test_no_changelog(package_command, first_app_pkg, tmp_path):
     """If a packaging doesn't succeed, an error is raised."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Remove the changelog file
-    (tmp_path / "base_path" / "CHANGELOG").unlink()
+    (tmp_path / "base_path/CHANGELOG").unlink()
 
     # Package the app; this will fail
     with pytest.raises(
@@ -488,13 +484,13 @@ def test_no_changelog(package_command, first_app_pkg, tmp_path):
         package_command.package_app(first_app_pkg)
 
     # The CHANGELOG file will not be copied
-    assert not (bundle_path / "pkgbuild" / "CHANGELOG").exists()
+    assert not (bundle_path / "pkgbuild/CHANGELOG").exists()
 
     # The PKGBUILD file will not exist (as existence of changelog is checked before writing the PKGBUILD file)
-    assert not (bundle_path / "pkgbuild" / "PKGBUILD").exists()
+    assert not (bundle_path / "pkgbuild/PKGBUILD").exists()
 
     # No source tarball was created
-    archive_file = bundle_path / "pkgbuild" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "pkgbuild/first-app-0.0.1.tar.gz"
     assert not archive_file.exists()
 
     # makepkg wasn't invoked

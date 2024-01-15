@@ -38,6 +38,9 @@ def full_context():
         "icon": None,
         "splash": None,
         "supported": True,
+        "permissions": {},
+        "custom_permissions": {},
+        "requests": {},
         "document_types": {},
         # Properties of the generating environment
         "python_version": platform.python_version(),
@@ -97,7 +100,7 @@ def test_default_template(
         "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
         no_input=True,
         checkout=expected_branch,
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -141,18 +144,14 @@ def test_default_template_dev(
             "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
             no_input=True,
             checkout="v37.42.7",
-            output_dir=os.fsdecode(
-                tmp_path / "base_path" / "build" / "my-app" / "tester"
-            ),
+            output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
             extra_context=full_context,
         ),
         mock.call(
             "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
             no_input=True,
             checkout="main",
-            output_dir=os.fsdecode(
-                tmp_path / "base_path" / "build" / "my-app" / "tester"
-            ),
+            output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
             extra_context=full_context,
         ),
     ]
@@ -192,9 +191,7 @@ def test_default_template_dev_explicit_branch(
             "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
             no_input=True,
             checkout=branch,
-            output_dir=os.fsdecode(
-                tmp_path / "base_path" / "build" / "my-app" / "tester"
-            ),
+            output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
             extra_context=full_context,
         ),
     ]
@@ -241,9 +238,7 @@ def test_default_template_dev_explicit_invalid_branch(
             "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
             no_input=True,
             checkout=branch,
-            output_dir=os.fsdecode(
-                tmp_path / "base_path" / "build" / "my-app" / "tester"
-            ),
+            output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
             extra_context=full_context,
         ),
     ]
@@ -271,7 +266,7 @@ def test_explicit_branch(monkeypatch, create_command, myapp, full_context, tmp_p
         "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
         no_input=True,
         checkout=branch,
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -297,7 +292,7 @@ def test_platform_exists(monkeypatch, create_command, myapp, full_context, tmp_p
         "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -324,7 +319,7 @@ def test_explicit_repo_template(
         "https://example.com/magic/special-template.git",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -358,7 +353,7 @@ def test_explicit_repo_template_and_branch(
         "https://example.com/magic/special-template.git",
         no_input=True,
         checkout=branch,
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -381,7 +376,7 @@ def test_explicit_local_template(
         "/path/to/special-template",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -414,7 +409,7 @@ def test_explicit_local_template_and_branch(
         "/path/to/special-template",
         no_input=True,
         checkout=branch,
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -454,7 +449,7 @@ def test_offline_repo_template(
         "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -487,7 +482,7 @@ def test_invalid_repo_template(
         "https://example.com/somewhere/not-a-repo.git",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -522,7 +517,7 @@ def test_missing_branch_template(
         "https://example.com/somewhere/missing-branch.git",
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -555,10 +550,10 @@ def test_cached_template(monkeypatch, create_command, myapp, full_context, tmp_p
 
     # Cookiecutter was invoked with the path to the *cached* template name
     create_command.tools.cookiecutter.assert_called_once_with(
-        os.fsdecode(Path.home() / ".cookiecutters" / "briefcase-Tester-Dummy-template"),
+        os.fsdecode(Path.home() / ".cookiecutters/briefcase-Tester-Dummy-template"),
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -605,10 +600,10 @@ def test_cached_template_offline(
 
     # Cookiecutter was invoked with the path to the *cached* template name
     create_command.tools.cookiecutter.assert_called_once_with(
-        os.fsdecode(Path.home() / ".cookiecutters" / "briefcase-Tester-Dummy-template"),
+        os.fsdecode(Path.home() / ".cookiecutters/briefcase-Tester-Dummy-template"),
         no_input=True,
         checkout="v37.42.7",
-        output_dir=os.fsdecode(tmp_path / "base_path" / "build" / "my-app" / "tester"),
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
         extra_context=full_context,
     )
 
@@ -632,3 +627,71 @@ def test_cached_missing_branch_template(monkeypatch, create_command, myapp):
     # Generating the template under there conditions raises an error
     with pytest.raises(TemplateUnsupportedVersion):
         create_command.generate_app_template(myapp)
+
+
+def test_x_permissions(
+    monkeypatch,
+    create_command,
+    myapp,
+    full_context,
+    tmp_path,
+):
+    # Set the Briefcase version
+    monkeypatch.setattr(briefcase, "__version__", "37.42.7")
+    full_context["briefcase_version"] = "37.42.7"
+
+    # Define some permissions and requests. The original "permission" and "request"
+    # definitions will be hidden from the final template context.
+
+    myapp.permission = {
+        # Cross-platform permissions
+        "camera": "I need to see you",
+        "microphone": "I need to hear you",
+        "coarse_location": "I need to know approximately where you are",
+        "fine_location": "I need to know exactly where you are",
+        "background_location": "I need to know where you are constantly",
+        "photo_library": "I need to see your photos",
+        # Custom permissions
+        "DUMMY_sit": "I can't sit without an invitation",
+        "DUMMY.leave.the.dinner.table": "It would be impolite.",
+    }
+    myapp.request = {"tasty.beverage": True}
+
+    # In the final context, all cross-platform permissions have been converted to upper
+    # case, prefixed with "DUMMY", and moved to the `permissions` key. Custom
+    # permissions have been moved to the "custom_permissions" key
+    full_context["permissions"] = {
+        "DUMMY_CAMERA": "I NEED TO SEE YOU",
+        "DUMMY_MICROPHONE": "I NEED TO HEAR YOU",
+        "DUMMY_COARSE_LOCATION": "I NEED TO KNOW APPROXIMATELY WHERE YOU ARE",
+        "DUMMY_FINE_LOCATION": "I NEED TO KNOW EXACTLY WHERE YOU ARE",
+        "DUMMY_BACKGROUND_LOCATION": "I NEED TO KNOW WHERE YOU ARE CONSTANTLY",
+        "DUMMY_PHOTO_LIBRARY": "I NEED TO SEE YOUR PHOTOS",
+    }
+    full_context["custom_permissions"] = {
+        "DUMMY_sit": "I can't sit without an invitation",
+        "DUMMY.leave.the.dinner.table": "It would be impolite.",
+    }
+
+    # An extra request has been added because of the camera permission, and the
+    # custom request has been preserved.
+    full_context["requests"] = {
+        "good.lighting": True,
+        "tasty.beverage": True,
+    }
+
+    # There won't be a cookiecutter cache, so there won't be
+    # a cache path (yet).
+    create_command.tools.git.Repo.side_effect = git_exceptions.NoSuchPathError
+
+    # Generate the template.
+    create_command.generate_app_template(myapp)
+
+    # Cookiecutter was invoked with the expected template name and context.
+    create_command.tools.cookiecutter.assert_called_once_with(
+        "https://github.com/beeware/briefcase-Tester-Dummy-template.git",
+        no_input=True,
+        checkout="v37.42.7",
+        output_dir=os.fsdecode(tmp_path / "base_path/build/my-app/tester"),
+        extra_context=full_context,
+    )

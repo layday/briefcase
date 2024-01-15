@@ -13,6 +13,7 @@ from enum import IntEnum
 from pathlib import Path
 
 from rich.console import Console as RichConsole
+from rich.control import strip_control_codes
 from rich.highlighter import RegexHighlighter
 from rich.markup import escape
 from rich.progress import (
@@ -29,12 +30,24 @@ from briefcase import __version__
 # Regex to identify settings likely to contain sensitive information
 SENSITIVE_SETTING_RE = re.compile(r"API|TOKEN|KEY|SECRET|PASS|SIGNATURE", flags=re.I)
 
+# 7-bit C1 ANSI escape sequences
+ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+
 
 class InputDisabled(Exception):
     def __init__(self):
         super().__init__(
             "Input is disabled; cannot request user input without a default"
         )
+
+
+def sanitize_text(text: str) -> str:
+    """Remove control codes and ANSI escape sequences from a line of text.
+
+    This is useful for extracting the plain text from the output of third party tools
+    that may be including markup for display in the console.
+    """
+    return ANSI_ESCAPE_RE.sub("", strip_control_codes(text))
 
 
 class RichConsoleHighlighter(RegexHighlighter):
@@ -102,18 +115,18 @@ class Printer:
         cls.to_log(*messages, stack_offset=stack_offset, **kwargs)
 
     @classmethod
-    def to_console(cls, *renderables, **kwargs):
-        """Specialized print to the console only omitting the log."""
-        cls.console.print(*renderables, **kwargs)
+    def to_console(cls, *messages, **kwargs):
+        """Write only to the console and skip writing to the log."""
+        cls.console.print(*messages, **kwargs)
 
     @classmethod
-    def to_log(cls, *renderables, stack_offset=5, **kwargs):
-        """Specialized print to the log only omitting the console."""
-        cls.log.log(*renderables, _stack_offset=stack_offset, **kwargs)
+    def to_log(cls, *messages, stack_offset=5, **kwargs):
+        """Write only to the log and skip writing to the console."""
+        cls.log.log(*map(sanitize_text, messages), _stack_offset=stack_offset, **kwargs)
 
     @classmethod
     def export_log(cls):
-        """Export the text of the entire log."""
+        """Export the text of the entire log; the log is also cleared."""
         return cls.log.export_text()
 
 
@@ -399,7 +412,7 @@ class Log:
         # build log header and export buffered log from Rich
         uname = platform.uname()
         sanitized_env_vars = "\n".join(
-            f"    {env_var}={value if not SENSITIVE_SETTING_RE.search(env_var) else '********************'}"
+            f"\t{env_var}={value if not SENSITIVE_SETTING_RE.search(env_var) else '********************'}"
             for env_var, value in sorted(command.tools.os.environ.items())
         )
         return (
@@ -657,16 +670,22 @@ class Console:
         """Present input() interface."""
         if not self.enabled:
             raise InputDisabled()
+
+        # make the prompt *bold* if it doesn't already contain markup
+        escaped_prompt = f"[bold]{escape(prompt)}[/bold]" if not markup else prompt
+
         try:
-            input_value = self.input(prompt, markup=markup)
-            self.print.to_log(prompt)
-            self.print.to_log(f"User input: {input_value}")
-            return input_value
+            input_value = self.input(escaped_prompt, markup=True)
         except EOFError:
             raise KeyboardInterrupt
 
+        self.print.to_log(prompt)
+        self.print.to_log(f"User input: {input_value}")
 
-def select_option(options, input, prompt="> ", error="Invalid selection"):
+        return input_value
+
+
+def select_option(options, input, prompt="> ", error="Invalid selection", default=None):
     """Prompt the user for a choice from a list of options.
 
     The options are provided as a dictionary; the values are the human-readable options,
@@ -683,6 +702,8 @@ def select_option(options, input, prompt="> ", error="Invalid selection"):
         the user's input can be easily mocked during testing.
     :param prompt: The prompt to display to the user.
     :param error: The error message to display when the user provides invalid input.
+    :param default: The default option for empty user input. The options for the user
+        start numbering at 1; so, to default to the first item, this should be "1".
     :returns: The key corresponding to the user's chosen option.
     """
     if isinstance(options, dict):
@@ -697,5 +718,7 @@ def select_option(options, input, prompt="> ", error="Invalid selection"):
         input.prompt()
 
     choices = [str(index) for index in range(1, len(ordered) + 1)]
-    index = input.selection_input(prompt=prompt, choices=choices, error_message=error)
+    index = input.selection_input(
+        prompt=prompt, choices=choices, error_message=error, default=default
+    )
     return ordered[int(index) - 1][0]

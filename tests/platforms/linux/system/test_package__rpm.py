@@ -49,7 +49,7 @@ def package_command(first_app, tmp_path):
 def first_app_rpm(first_app, tmp_path):
     # Mock a Red Hat app
     first_app.python_version_tag = "3"
-    first_app.target_vendor_base = "redhat"
+    first_app.target_vendor_base = "rhel"
     first_app.packaging_format = "rpm"
     first_app.glibc_version = "2.99"
     first_app.long_description = "Long description\nfor the app"
@@ -67,14 +67,14 @@ def first_app_rpm(first_app, tmp_path):
     )
 
     # Create the binary
-    create_file(usr_dir / "bin" / "first-app", "binary")
+    create_file(usr_dir / "bin/first-app", "binary")
 
     # Files in an app-named folder
-    create_file(usr_dir / "share" / "doc" / "first-app" / "license", "license")
-    create_file(usr_dir / "share" / "doc" / "first-app" / "UserManual", "manual")
+    create_file(usr_dir / "share/doc/first-app/license", "license")
+    create_file(usr_dir / "share/doc/first-app/UserManual", "manual")
 
     # A share file in an app-named folder
-    create_file(usr_dir / "share" / "man" / "man1" / "first-app.1.gz", "man")
+    create_file(usr_dir / "share/man/man1/first-app.1.gz", "man")
 
     return first_app
 
@@ -84,41 +84,49 @@ def test_verify_no_docker(monkeypatch, package_command, first_app_rpm):
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of rpmbuild
-    rpmbuild = mock.MagicMock()
-    rpmbuild.exists.return_value = True
-
-    mock_Path = mock.MagicMock(return_value=rpmbuild)
-    monkeypatch.setattr(system, "Path", mock_Path)
+    # Mock the existence of rpmbuild
+    package_command.tools.shutil.which = mock.MagicMock(return_value="/mybin/rpmbuild")
 
     # App tools can be verified
     package_command.verify_app_tools(first_app_rpm)
 
     # rpmbuild was inspected
-    rpmbuild.exists.assert_called_once()
+    package_command.tools.shutil.which.assert_called_once_with("rpmbuild")
 
 
-def test_verify_rpmbuild_missing(monkeypatch, package_command, first_app_rpm):
+@pytest.mark.parametrize(
+    "vendor_base, error_msg",
+    [
+        (
+            "rhel",
+            "Can't find the rpm-build tools. Try running `sudo dnf install rpmbuild`.",
+        ),
+        (None, "Can't find the rpmbuild tool. Install this first to package the rpm."),
+    ],
+)
+def test_verify_rpmbuild_missing(
+    monkeypatch,
+    package_command,
+    first_app_rpm,
+    vendor_base,
+    error_msg,
+):
     """If rpmbuild isn't installed, an error is raised."""
+    # Mock distro so packager is found or not appropriately
+    first_app_rpm.target_vendor_base = vendor_base
+
+    # Mock packager as missing
+    package_command.tools.shutil.which = mock.MagicMock(return_value="")
+
     # Mock not using docker
     package_command.target_image = None
 
-    # Mock the path of rpmbuild
-    rpmbuild = mock.MagicMock()
-    rpmbuild.exists.return_value = False
-
-    mock_Path = mock.MagicMock(return_value=rpmbuild)
-    monkeypatch.setattr(system, "Path", mock_Path)
-
     # Verifying app tools will raise an error
-    with pytest.raises(
-        BriefcaseCommandError,
-        match=r"Can't find the rpm-build tools. Try running `sudo dnf install rpm-build`.",
-    ):
+    with pytest.raises(BriefcaseCommandError, match=error_msg):
         package_command.verify_app_tools(first_app_rpm)
 
     # rpmbuild was inspected
-    rpmbuild.exists.assert_called_once()
+    package_command.tools.shutil.which.assert_called_once_with("rpmbuild")
 
 
 def test_verify_docker(monkeypatch, package_command, first_app_rpm):
@@ -150,26 +158,22 @@ def test_verify_docker(monkeypatch, package_command, first_app_rpm):
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_rpm_package(package_command, first_app_rpm, tmp_path):
     """A rpm app can be packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Package the app
     package_command.package_app(first_app_rpm)
 
     # rpmbuild layout has been generated
-    assert (bundle_path / "rpmbuild" / "BUILD").exists()
-    assert (bundle_path / "rpmbuild" / "BUILDROOT").exists()
-    assert (bundle_path / "rpmbuild" / "RPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SOURCES").exists()
-    assert (bundle_path / "rpmbuild" / "SRPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SPECS").exists()
+    assert (bundle_path / "rpmbuild/BUILD").exists()
+    assert (bundle_path / "rpmbuild/BUILDROOT").exists()
+    assert (bundle_path / "rpmbuild/RPMS").exists()
+    assert (bundle_path / "rpmbuild/SOURCES").exists()
+    assert (bundle_path / "rpmbuild/SRPMS").exists()
+    assert (bundle_path / "rpmbuild/SPECS").exists()
 
     # The spec file is written
-    assert (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
-    with (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
+    with (bundle_path / "rpmbuild/SPECS/first-app.spec").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "%global __brp_mangle_shebangs %{nil}",
@@ -231,7 +235,7 @@ def test_rpm_package(package_command, first_app_rpm, tmp_path):
         )
 
     # A source tarball was created with the right content
-    archive_file = bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
     with tarfile.open(archive_file, "r:gz") as archive:
         assert sorted(archive.getnames()) == [
@@ -283,24 +287,22 @@ def test_rpm_package(package_command, first_app_rpm, tmp_path):
         / "RPMS"
         / "wonky"
         / "first-app-0.0.1-1.fcXX.wonky.rpm",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-1.fcXX.wonky.rpm",
+        tmp_path / "base_path/dist/first-app-0.0.1-1.fcXX.wonky.rpm",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_rpm_re_package(package_command, first_app_rpm, tmp_path):
     """A rpm app that has previously been packaged can be re-packaged."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Create an old spec file and tarball that will be overwritten.
     create_file(
-        bundle_path / "rpmbuild" / "SPECS" / "first-app.spec",
+        bundle_path / "rpmbuild/SPECS/first-app.spec",
         "Old spec content",
     )
     create_tgz_file(
-        bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz",
+        bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz",
         [("old.txt", "old content")],
     )
 
@@ -308,18 +310,16 @@ def test_rpm_re_package(package_command, first_app_rpm, tmp_path):
     package_command.package_app(first_app_rpm)
 
     # rpmbuild layout has been generated
-    assert (bundle_path / "rpmbuild" / "BUILD").exists()
-    assert (bundle_path / "rpmbuild" / "BUILDROOT").exists()
-    assert (bundle_path / "rpmbuild" / "RPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SOURCES").exists()
-    assert (bundle_path / "rpmbuild" / "SRPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SPECS").exists()
+    assert (bundle_path / "rpmbuild/BUILD").exists()
+    assert (bundle_path / "rpmbuild/BUILDROOT").exists()
+    assert (bundle_path / "rpmbuild/RPMS").exists()
+    assert (bundle_path / "rpmbuild/SOURCES").exists()
+    assert (bundle_path / "rpmbuild/SRPMS").exists()
+    assert (bundle_path / "rpmbuild/SPECS").exists()
 
     # The spec file is written
-    assert (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
-    with (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
+    with (bundle_path / "rpmbuild/SPECS/first-app.spec").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "%global __brp_mangle_shebangs %{nil}",
@@ -381,7 +381,7 @@ def test_rpm_re_package(package_command, first_app_rpm, tmp_path):
         )
 
     # A source tarball was created with the right content
-    archive_file = bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
     with tarfile.open(archive_file, "r:gz") as archive:
         assert sorted(archive.getnames()) == [
@@ -433,16 +433,14 @@ def test_rpm_re_package(package_command, first_app_rpm, tmp_path):
         / "RPMS"
         / "wonky"
         / "first-app-0.0.1-1.fcXX.wonky.rpm",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-1.fcXX.wonky.rpm",
+        tmp_path / "base_path/dist/first-app-0.0.1-1.fcXX.wonky.rpm",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_rpm_package_no_long_description(package_command, first_app_rpm, tmp_path):
     """A rpm app without a long description raises an error."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Delete the long description
     first_app_rpm.long_description = None
@@ -455,18 +453,14 @@ def test_rpm_package_no_long_description(package_command, first_app_rpm, tmp_pat
         package_command.package_app(first_app_rpm)
 
     # The spec file and tarball won't be written
-    assert not (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
-    assert not (
-        bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
-    ).exists()
+    assert not (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
+    assert not (bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz").exists()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_rpm_package_extra_requirements(package_command, first_app_rpm, tmp_path):
     """A rpm app can be packaged with extra runtime requirements and config features."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Add system requirements and other optional settings.
     first_app_rpm.system_runtime_requires = ["first", "second"]
@@ -477,18 +471,16 @@ def test_rpm_package_extra_requirements(package_command, first_app_rpm, tmp_path
     package_command.package_app(first_app_rpm)
 
     # rpmbuild layout has been generated
-    assert (bundle_path / "rpmbuild" / "BUILD").exists()
-    assert (bundle_path / "rpmbuild" / "BUILDROOT").exists()
-    assert (bundle_path / "rpmbuild" / "RPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SOURCES").exists()
-    assert (bundle_path / "rpmbuild" / "SRPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SPECS").exists()
+    assert (bundle_path / "rpmbuild/BUILD").exists()
+    assert (bundle_path / "rpmbuild/BUILDROOT").exists()
+    assert (bundle_path / "rpmbuild/RPMS").exists()
+    assert (bundle_path / "rpmbuild/SOURCES").exists()
+    assert (bundle_path / "rpmbuild/SRPMS").exists()
+    assert (bundle_path / "rpmbuild/SPECS").exists()
 
     # The spec file is written
-    assert (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
-    with (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").open(
-        encoding="utf-8"
-    ) as f:
+    assert (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
+    with (bundle_path / "rpmbuild/SPECS/first-app.spec").open(encoding="utf-8") as f:
         assert f.read() == "\n".join(
             [
                 "%global __brp_mangle_shebangs %{nil}",
@@ -552,7 +544,7 @@ def test_rpm_package_extra_requirements(package_command, first_app_rpm, tmp_path
         )
 
     # A source tarball was created
-    archive_file = bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
 
     # rpmbuild was invoked
@@ -577,16 +569,14 @@ def test_rpm_package_extra_requirements(package_command, first_app_rpm, tmp_path
         / "RPMS"
         / "wonky"
         / "first-app-0.0.1-42.fcXX.wonky.rpm",
-        tmp_path / "base_path" / "dist" / "first-app-0.0.1-42.fcXX.wonky.rpm",
+        tmp_path / "base_path/dist/first-app-0.0.1-42.fcXX.wonky.rpm",
     )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_rpm_package_failure(package_command, first_app_rpm, tmp_path):
     """If an packaging doesn't succeed, an error is raised."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Mock a packaging failure
     package_command.tools.app_tools[
@@ -602,18 +592,18 @@ def test_rpm_package_failure(package_command, first_app_rpm, tmp_path):
         package_command.package_app(first_app_rpm)
 
     # rpmbuild layout has been generated
-    assert (bundle_path / "rpmbuild" / "BUILD").exists()
-    assert (bundle_path / "rpmbuild" / "BUILDROOT").exists()
-    assert (bundle_path / "rpmbuild" / "RPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SOURCES").exists()
-    assert (bundle_path / "rpmbuild" / "SRPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SPECS").exists()
+    assert (bundle_path / "rpmbuild/BUILD").exists()
+    assert (bundle_path / "rpmbuild/BUILDROOT").exists()
+    assert (bundle_path / "rpmbuild/RPMS").exists()
+    assert (bundle_path / "rpmbuild/SOURCES").exists()
+    assert (bundle_path / "rpmbuild/SRPMS").exists()
+    assert (bundle_path / "rpmbuild/SPECS").exists()
 
     # The spec file is written
-    assert (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
+    assert (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
 
     # A source tarball was created
-    archive_file = bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz"
     assert archive_file.exists()
 
     # rpmbuild was invoked
@@ -638,12 +628,10 @@ def test_rpm_package_failure(package_command, first_app_rpm, tmp_path):
 @pytest.mark.skipif(sys.platform == "win32", reason="Can't build RPMs on Windows")
 def test_no_changelog(package_command, first_app_rpm, tmp_path):
     """If an packaging doesn't succeed, an error is raised."""
-    bundle_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "somevendor" / "surprising"
-    )
+    bundle_path = tmp_path / "base_path/build/first-app/somevendor/surprising"
 
     # Remove the changelog file
-    (tmp_path / "base_path" / "CHANGELOG").unlink()
+    (tmp_path / "base_path/CHANGELOG").unlink()
 
     # Package the app; this will fail
     with pytest.raises(
@@ -652,18 +640,18 @@ def test_no_changelog(package_command, first_app_rpm, tmp_path):
         package_command.package_app(first_app_rpm)
 
     # rpmbuild layout has been generated
-    assert (bundle_path / "rpmbuild" / "BUILD").exists()
-    assert (bundle_path / "rpmbuild" / "BUILDROOT").exists()
-    assert (bundle_path / "rpmbuild" / "RPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SOURCES").exists()
-    assert (bundle_path / "rpmbuild" / "SRPMS").exists()
-    assert (bundle_path / "rpmbuild" / "SPECS").exists()
+    assert (bundle_path / "rpmbuild/BUILD").exists()
+    assert (bundle_path / "rpmbuild/BUILDROOT").exists()
+    assert (bundle_path / "rpmbuild/RPMS").exists()
+    assert (bundle_path / "rpmbuild/SOURCES").exists()
+    assert (bundle_path / "rpmbuild/SRPMS").exists()
+    assert (bundle_path / "rpmbuild/SPECS").exists()
 
     # The spec file will exist (however, it will be incomplete)
-    assert (bundle_path / "rpmbuild" / "SPECS" / "first-app.spec").exists()
+    assert (bundle_path / "rpmbuild/SPECS/first-app.spec").exists()
 
     # No source tarball was created
-    archive_file = bundle_path / "rpmbuild" / "SOURCES" / "first-app-0.0.1.tar.gz"
+    archive_file = bundle_path / "rpmbuild/SOURCES/first-app-0.0.1.tar.gz"
     assert not archive_file.exists()
 
     # rpmbuild wasn't invoked

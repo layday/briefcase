@@ -21,18 +21,20 @@ def create_command(first_app_config, tmp_path):
 
 def test_default_options(create_command):
     """The default options are as expected."""
-    options = create_command.parse_options([])
+    options, overrides = create_command.parse_options([])
 
     assert options == {}
+    assert overrides == {}
 
     assert create_command.use_docker
 
 
 def test_options(create_command):
     """The extra options can be parsed."""
-    options = create_command.parse_options(["--no-docker"])
+    options, overrides = create_command.parse_options(["--no-docker"])
 
     assert options == {}
+    assert overrides == {}
 
     assert not create_command.use_docker
 
@@ -169,6 +171,32 @@ def test_finalize_nodocker(create_command, first_app_config, capsys):
             False,
             {
                 "manylinux_image": "manylinux_2_28_i686:latest",
+                "vendor_base": "almalinux",
+                "use_non_root_user": True,
+            },
+        ),
+        # Linux on aarch64 hardware
+        (
+            "manylinux_2_28",
+            None,
+            "Linux",
+            "aarch64",
+            False,
+            {
+                "manylinux_image": "manylinux_2_28_aarch64:latest",
+                "vendor_base": "almalinux",
+                "use_non_root_user": True,
+            },
+        ),
+        # Linux on arm hardware
+        (
+            "manylinux_2_28",
+            None,
+            "Linux",
+            "armv7l",
+            False,
+            {
+                "manylinux_image": "manylinux_2_28_armhf:latest",
                 "vendor_base": "almalinux",
                 "use_non_root_user": True,
             },

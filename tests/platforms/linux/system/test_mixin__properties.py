@@ -27,7 +27,7 @@ def test_build_path(
 
     assert (
         create_command.build_path(first_app_config)
-        == tmp_path / "base_path" / "build" / "first-app" / vendor
+        == tmp_path / "base_path/build/first-app" / vendor
     )
 
 
@@ -51,7 +51,7 @@ def test_bundle_path(
 
     assert (
         create_command.bundle_path(first_app_config)
-        == tmp_path / "base_path" / "build" / "first-app" / vendor / codename
+        == tmp_path / "base_path/build/first-app" / vendor / codename
     )
 
 
@@ -80,23 +80,28 @@ def test_binary_path(create_command, first_app_config, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "packaging_format, filename",
+    "packaging_format, vendor_base, filename",
     [
-        ("deb", "first-app_0.0.1-1~somevendor-surprising_wonky.deb"),
-        ("rpm", "first-app-0.0.1-1.elsurprising.wonky.rpm"),
-        ("pkg", "first-app-0.0.1-1-wonky.pkg.tar.zst"),
+        ("deb", "debian", "first-app_0.0.1-1~somevendor-surprising_wonky.deb"),
+        ("rpm", "fedora", "first-app-0.0.1-1.elsurprising.wonky.rpm"),
+        ("rpm", "suse", "first-app-0.0.1-1.wonky.rpm"),
+        ("pkg", "arch", "first-app-0.0.1-1-wonky.pkg.tar.zst"),
     ],
 )
 def test_distribution_path(
     create_command,
     first_app_config,
     packaging_format,
+    vendor_base,
     filename,
     tmp_path,
 ):
     """The distribution path contains vendor details."""
     # Mock return value for ABI from packaging system
     create_command._build_env_abi = MagicMock(return_value="wonky")
+
+    # Set vendor base (RPM package naming changes for openSUSE)
+    first_app_config.target_vendor_base = vendor_base
 
     # Force a dummy vendor:codename for test purposes.
     first_app_config.target_vendor = "somevendor"
@@ -105,7 +110,7 @@ def test_distribution_path(
 
     assert (
         create_command.distribution_path(first_app_config)
-        == tmp_path / "base_path" / "dist" / filename
+        == tmp_path / "base_path/dist" / filename
     )
 
 

@@ -59,10 +59,8 @@ def test_command(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(Path, "cwd", lambda: tmp_path)
 
     # Create a dummy empty template to use in the new command
-    create_file(tmp_path / "template" / "cookiecutter.json", '{"app_name": "app_name"}')
-    create_file(
-        tmp_path / "template" / "{{ cookiecutter.app_name }}" / "app", "content"
-    )
+    create_file(tmp_path / "template/cookiecutter.json", '{"app_name": "app_name"}')
+    create_file(tmp_path / "template/{{ cookiecutter.app_name }}/app", "content")
 
     # Set the test command line
     monkeypatch.setattr(
@@ -75,7 +73,9 @@ def test_command(monkeypatch, tmp_path, capsys):
     assert main() == 0
 
     output = capsys.readouterr().out
-    assert output.startswith("\nGenerating a new application 'Hello World'\n")
+    assert output.startswith(
+        "\n[helloworld] Generating a new application 'Hello World'"
+    )
 
     # No log file was written
     assert len(list(tmp_path.glob(f"{Log.LOG_DIR}/briefcase.*.log"))) == 0

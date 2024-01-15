@@ -38,10 +38,8 @@ def package_command(tmp_path):
 @pytest.fixture
 def package_command_with_files(package_command, tmp_path):
     # Build the paths for the source and the distribution folders:
-    src_path = (
-        tmp_path / "base_path" / "build" / "first-app" / "windows" / "app" / "src"
-    )
-    dist_path = tmp_path / "base_path" / "dist"
+    src_path = tmp_path / "base_path/build/first-app/windows/app/src"
+    dist_path = tmp_path / "base_path/dist"
     src_path.mkdir(parents=True)
     dist_path.mkdir(parents=True)
 
@@ -51,11 +49,11 @@ def package_command_with_files(package_command, tmp_path):
         src_path / "python.exe",
         src_path / "python3.dll",
         src_path / "vcruntime140.dll",
-        src_path / "app/first-app" / "app.py",
-        src_path / "app/first-app" / "resources" / "__init__.py",
-        src_path / "app/first-app-0.0.1.dist-info" / "top_level.txt",
-        src_path / "app_packages" / "clr.py",
-        src_path / "app_packages" / "toga_winforms" / "command.py",
+        src_path / "app/first-app/app.py",
+        src_path / "app/first-app/resources/__init__.py",
+        src_path / "app/first-app-0.0.1.dist-info/top_level.txt",
+        src_path / "app_packages/clr.py",
+        src_path / "app_packages/toga_winforms/command.py",
     )
     for file in files:
         create_file(file, "")
@@ -190,9 +188,10 @@ def test_parse_options(package_command, cli_args, signing_options, is_sdk_needed
     )
     expected_options = {**default_options, **signing_options}
 
-    options = package_command.parse_options(extra=cli_args)
+    options, overrides = package_command.parse_options(extra=cli_args)
 
     assert options == expected_options
+    assert overrides == {}
     assert package_command._windows_sdk_needed is is_sdk_needed
 
 
@@ -212,7 +211,7 @@ def test_package_msi(package_command, first_app_config, kwargs, tmp_path):
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -231,12 +230,12 @@ def test_package_msi(package_command, first_app_config, kwargs, tmp_path):
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Compile MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "candle.exe",
+                tmp_path / "wix/bin/candle.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -249,12 +248,12 @@ def test_package_msi(package_command, first_app_config, kwargs, tmp_path):
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Link MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "light.exe",
+                tmp_path / "wix/bin/light.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -263,12 +262,12 @@ def test_package_msi(package_command, first_app_config, kwargs, tmp_path):
                 "-loc",
                 "unicode.wxl",
                 "-o",
-                tmp_path / "base_path" / "dist" / "First App-0.0.1.msi",
+                tmp_path / "base_path/dist/First App-0.0.1.msi",
                 "first-app.wixobj",
                 "first-app-manifest.wixobj",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
     ]
 
@@ -289,7 +288,7 @@ def test_package_zip(package_command_with_files, first_app_config, kwargs, tmp_p
     # No signing was performed
     assert package_command_with_files.tools.subprocess.run.mock_calls == []
 
-    archive_file = tmp_path / "base_path" / "dist" / "First App-0.0.1.zip"
+    archive_file = tmp_path / "base_path/dist/First App-0.0.1.zip"
     source_folders_and_files = (
         "app/",
         "app/first-app/",
@@ -388,7 +387,7 @@ def test_package_msi_with_codesigning(
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -407,12 +406,12 @@ def test_package_msi_with_codesigning(
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Compile MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "candle.exe",
+                tmp_path / "wix/bin/candle.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -425,12 +424,12 @@ def test_package_msi_with_codesigning(
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Link MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "light.exe",
+                tmp_path / "wix/bin/light.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -439,12 +438,12 @@ def test_package_msi_with_codesigning(
                 "-loc",
                 "unicode.wxl",
                 "-o",
-                tmp_path / "base_path" / "dist" / "First App-0.0.1.msi",
+                tmp_path / "base_path/dist/First App-0.0.1.msi",
                 "first-app.wixobj",
                 "first-app-manifest.wixobj",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Codesign app MSI
         mock.call(
@@ -472,7 +471,7 @@ def test_package_msi_with_codesigning(
                 "sha56",
             ]
             + additional_args
-            + [tmp_path / "base_path" / "dist" / "First App-0.0.1.msi"],
+            + [tmp_path / "base_path/dist/First App-0.0.1.msi"],
             check=True,
         ),
     ]
@@ -627,7 +626,7 @@ def test_package_msi_failed_manifest(package_command, first_app_config, tmp_path
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -646,7 +645,7 @@ def test_package_msi_failed_manifest(package_command, first_app_config, tmp_path
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
     ]
 
@@ -669,7 +668,7 @@ def test_package_msi_failed_compile(package_command, first_app_config, tmp_path)
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -688,12 +687,12 @@ def test_package_msi_failed_compile(package_command, first_app_config, tmp_path)
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Compile MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "candle.exe",
+                tmp_path / "wix/bin/candle.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -706,7 +705,7 @@ def test_package_msi_failed_compile(package_command, first_app_config, tmp_path)
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
     ]
 
@@ -730,7 +729,7 @@ def test_package_msi_failed_link(package_command, first_app_config, tmp_path):
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -749,12 +748,12 @@ def test_package_msi_failed_link(package_command, first_app_config, tmp_path):
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Compile MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "candle.exe",
+                tmp_path / "wix/bin/candle.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -767,12 +766,12 @@ def test_package_msi_failed_link(package_command, first_app_config, tmp_path):
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Link MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "light.exe",
+                tmp_path / "wix/bin/light.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -781,12 +780,12 @@ def test_package_msi_failed_link(package_command, first_app_config, tmp_path):
                 "-loc",
                 "unicode.wxl",
                 "-o",
-                tmp_path / "base_path" / "dist" / "First App-0.0.1.msi",
+                tmp_path / "base_path/dist/First App-0.0.1.msi",
                 "first-app.wixobj",
                 "first-app-manifest.wixobj",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
     ]
 
@@ -851,7 +850,7 @@ def test_package_msi_failed_signing_msi(package_command, first_app_config, tmp_p
         # Collect manifest
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "heat.exe",
+                tmp_path / "wix/bin/heat.exe",
                 "dir",
                 "src",
                 "-nologo",
@@ -870,12 +869,12 @@ def test_package_msi_failed_signing_msi(package_command, first_app_config, tmp_p
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Compile MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "candle.exe",
+                tmp_path / "wix/bin/candle.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -888,12 +887,12 @@ def test_package_msi_failed_signing_msi(package_command, first_app_config, tmp_p
                 "first-app-manifest.wxs",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Link MSI
         mock.call(
             [
-                tmp_path / "wix" / "bin" / "light.exe",
+                tmp_path / "wix/bin/light.exe",
                 "-nologo",
                 "-ext",
                 "WixUtilExtension",
@@ -902,12 +901,12 @@ def test_package_msi_failed_signing_msi(package_command, first_app_config, tmp_p
                 "-loc",
                 "unicode.wxl",
                 "-o",
-                tmp_path / "base_path" / "dist" / "First App-0.0.1.msi",
+                tmp_path / "base_path/dist/First App-0.0.1.msi",
                 "first-app.wixobj",
                 "first-app-manifest.wixobj",
             ],
             check=True,
-            cwd=tmp_path / "base_path" / "build" / "first-app" / "windows" / "app",
+            cwd=tmp_path / "base_path/build/first-app/windows/app",
         ),
         # Codesign app MSI
         mock.call(
@@ -933,7 +932,7 @@ def test_package_msi_failed_signing_msi(package_command, first_app_config, tmp_p
                 "http://freetimestamps.com",
                 "-td",
                 "sha56",
-                tmp_path / "base_path" / "dist" / "First App-0.0.1.msi",
+                tmp_path / "base_path/dist/First App-0.0.1.msi",
             ],
             check=True,
         ),

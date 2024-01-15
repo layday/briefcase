@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from unittest import mock
 
 import pytest
@@ -46,6 +48,7 @@ class DummyCreateCommand(CreateCommand):
     platform = "Tester"
     output_format = "Dummy"
     description = "Dummy create command"
+    hidden_app_properties = {"permission", "request"}
 
     def __init__(self, *args, support_file=None, git=None, home_path=None, **kwargs):
         kwargs.setdefault("logger", Log())
@@ -88,6 +91,31 @@ class DummyCreateCommand(CreateCommand):
     # Define output format-specific template context.
     def output_format_template_context(self, app):
         return {"output_format": "dummy"}
+
+    # Handle platform-specific permissions.
+    # Convert all the cross-platform permissions to upper case, prefixing DUMMY_.
+    # Add a "good lighting" request if the camera permission has been requested.
+    def permissions_context(self, app: AppConfig, x_permissions: dict[str, str]):
+        # We don't actually need anything from the superclass; but call it to ensure
+        # coverage.
+        context = super().permissions_context(app, x_permissions)
+        if context:
+            # Make sure the base class *isn't* doing anything.
+            return context
+
+        permissions = {
+            f"DUMMY_{key.upper()}": value.upper()
+            for key, value in x_permissions.items()
+            if value
+        }
+        context["permissions"] = permissions
+        context["custom_permissions"] = app.permission
+
+        requests = {"good.lighting": True} if x_permissions["camera"] else {}
+        requests.update(getattr(app, "request", {}))
+        context["requests"] = requests
+
+        return context
 
 
 class TrackingCreateCommand(DummyCreateCommand):
@@ -203,15 +231,15 @@ def bundle_path(myapp, tmp_path):
     # Return the bundle path for the app; however, as a side effect,
     # ensure that the app, and app_packages target directories
     # exist, and the briefcase index file has been created.
-    bundle_path = tmp_path / "base_path" / "build" / myapp.app_name / "tester" / "dummy"
-    (bundle_path / "path" / "to" / "app").mkdir(parents=True, exist_ok=True)
+    bundle_path = tmp_path / "base_path/build" / myapp.app_name / "tester/dummy"
+    (bundle_path / "path/to/app").mkdir(parents=True, exist_ok=True)
 
     return bundle_path
 
 
 @pytest.fixture
 def app_packages_path_index(bundle_path):
-    (bundle_path / "path" / "to" / "app_packages").mkdir(parents=True, exist_ok=True)
+    (bundle_path / "path/to/app_packages").mkdir(parents=True, exist_ok=True)
     with (bundle_path / "briefcase.toml").open("wb") as f:
         index = {
             "paths": {
@@ -265,19 +293,19 @@ def no_support_path_index(bundle_path):
 
 @pytest.fixture
 def support_path(bundle_path):
-    return bundle_path / "path" / "to" / "support"
+    return bundle_path / "path/to/support"
 
 
 @pytest.fixture
 def app_requirements_path(bundle_path):
-    return bundle_path / "path" / "to" / "requirements.txt"
+    return bundle_path / "path/to/requirements.txt"
 
 
 @pytest.fixture
 def app_packages_path(bundle_path):
-    return bundle_path / "path" / "to" / "app_packages"
+    return bundle_path / "path/to/app_packages"
 
 
 @pytest.fixture
 def app_path(bundle_path):
-    return bundle_path / "path" / "to" / "app"
+    return bundle_path / "path/to/app"

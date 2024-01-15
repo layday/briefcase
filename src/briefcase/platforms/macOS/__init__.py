@@ -39,7 +39,9 @@ class macOSMixin:
     supported_host_os_reason = "macOS applications can only be built on macOS."
 
 
-class macOSInstallMixin(AppPackagesMergeMixin):
+class macOSCreateMixin(AppPackagesMergeMixin):
+    hidden_app_properties = {"permission", "entitlement"}
+
     def _install_app_requirements(
         self,
         app: AppConfig,
@@ -147,6 +149,50 @@ in the macOS configuration section of your pyproject.toml.
             # libraries down to just the host architecture.
             self.thin_app_packages(app_packages_path, arch=self.tools.host_arch)
 
+    def permissions_context(self, app: AppConfig, cross_platform: dict[str, str]):
+        """Additional template context for permissions.
+
+        :param app: The config object for the app
+        :param cross_platform: The dictionary of known cross-platform permission
+            definitions.
+        :returns: The template context describing permissions for the app.
+        """
+        # The info.plist entries for the app
+        info = {}
+
+        # Default entitlements for all macOS apps
+        entitlements = {
+            "com.apple.security.cs.allow-unsigned-executable-memory": True,
+            "com.apple.security.cs.disable-library-validation": True,
+        }
+
+        if cross_platform["camera"]:
+            entitlements["com.apple.security.device.camera"] = True
+        if cross_platform["microphone"]:
+            entitlements["com.apple.security.device.microphone"] = True
+
+        if cross_platform["background_location"]:
+            info["NSLocationUsageDescription"] = cross_platform["background_location"]
+            entitlements["com.apple.security.personal-information.location"] = True
+        elif cross_platform["fine_location"]:
+            info["NSLocationUsageDescription"] = cross_platform["fine_location"]
+            entitlements["com.apple.security.personal-information.location"] = True
+        elif cross_platform["coarse_location"]:
+            info["NSLocationUsageDescription"] = cross_platform["coarse_location"]
+            entitlements["com.apple.security.personal-information.location"] = True
+
+        if cross_platform["photo_library"]:
+            entitlements["com.apple.security.personal-information.photo_library"] = True
+
+        # Override any info and entitlement definitions with the platform specific definitions
+        info.update(getattr(app, "info", {}))
+        entitlements.update(getattr(app, "entitlement", {}))
+
+        return {
+            "info": info,
+            "entitlements": entitlements,
+        }
+
 
 class macOSRunMixin:
     def run_app(
@@ -178,9 +224,7 @@ class macOSRunMixin:
         # as the process will generate lots of system-level messages.
         # We can't filter on *just* the senderImagePath, because other
         # apps will generate log messages that would be caught by the filter.
-        sender = os.fsdecode(
-            self.binary_path(app) / "Contents" / "MacOS" / app.formal_name
-        )
+        sender = os.fsdecode(self.binary_path(app) / "Contents/MacOS" / app.formal_name)
         log_popen = self.tools.subprocess.Popen(
             [
                 "log",
@@ -415,8 +459,8 @@ or
         :param identity: The signing identity to use
         """
         bundle_path = self.binary_path(app)
-        resources_path = bundle_path / "Contents" / "Resources"
-        frameworks_path = bundle_path / "Contents" / "Frameworks"
+        resources_path = bundle_path / "Contents/Resources"
+        frameworks_path = bundle_path / "Contents/Frameworks"
 
         sign_targets = []
 
@@ -479,11 +523,11 @@ or
 class macOSPackageMixin(macOSSigningMixin):
     ADHOC_SIGN_HELP = (
         "Perform ad-hoc signing on the app. "
-        "The app will only run on this machine; it cannot be redistributed to others."
+        "The app will only run on this machine; it cannot be redistributed to others"
     )
     IDENTITY_HELP = (
         "The code signing identity to use; either the 40-digit hex "
-        "checksum, or the full name of the identity."
+        "checksum, or the full name of the identity"
     )
 
     @property
