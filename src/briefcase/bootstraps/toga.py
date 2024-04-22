@@ -38,18 +38,17 @@ if __name__ == "__main__":
 
     def pyproject_table_briefcase_app_extra_content(self):
         return """
-
 requires = [
 ]
 test_requires = [
-{%- if cookiecutter.test_framework == "pytest" %}
+{% if cookiecutter.test_framework == "pytest" %}
     "pytest",
-{%- endif %}
+{% endif %}
 ]
 """
 
     def pyproject_table_macOS(self):
-        return """
+        return """\
 universal_build = true
 requires = [
     "toga-cocoa~=0.4.0",
@@ -58,14 +57,14 @@ requires = [
 """
 
     def pyproject_table_linux(self):
-        return """
+        return """\
 requires = [
     "toga-gtk~=0.4.0",
 ]
 """
 
     def pyproject_table_linux_system_debian(self):
-        return """
+        return """\
 system_requires = [
     # Needed to compile pycairo wheel
     "libcairo2-dev",
@@ -85,7 +84,7 @@ system_runtime_requires = [
 """
 
     def pyproject_table_linux_system_rhel(self):
-        return """
+        return """\
 system_requires = [
     # Needed to compile pycairo wheel
     "cairo-gobject-devel",
@@ -106,7 +105,7 @@ system_runtime_requires = [
 """
 
     def pyproject_table_linux_system_suse(self):
-        return """
+        return """\
 system_requires = [
     # Needed to compile pycairo wheel
     "cairo-devel",
@@ -122,13 +121,12 @@ system_runtime_requires = [
     # Dependencies that GTK looks for at runtime
     "libcanberra-gtk3-0",
     # Needed to provide WebKit2 at runtime
-    # "libwebkit2gtk3",
-    # "typelib(WebKit2)",
+    # "libwebkit2gtk3", "typelib(WebKit2)",
 ]
 """
 
     def pyproject_table_linux_system_arch(self):
-        return """
+        return """\
 system_requires = [
     # Needed to compile pycairo wheel
     "cairo",
@@ -157,7 +155,7 @@ system_runtime_requires = [
 """
 
     def pyproject_table_linux_appimage(self):
-        return """
+        return """\
 manylinux = "manylinux_2_28"
 
 system_requires = [
@@ -180,21 +178,21 @@ linuxdeploy_plugins = [
 """
 
     def pyproject_table_linux_flatpak(self):
-        return """
+        return """\
 flatpak_runtime = "org.gnome.Platform"
 flatpak_runtime_version = "45"
 flatpak_sdk = "org.gnome.Sdk"
 """
 
     def pyproject_table_windows(self):
-        return """
+        return """\
 requires = [
     "toga-winforms~=0.4.0",
 ]
 """
 
     def pyproject_table_iOS(self):
-        return """
+        return """\
 requires = [
     "toga-iOS~=0.4.0",
     "std-nslog~=1.0.0",
@@ -202,14 +200,23 @@ requires = [
 """
 
     def pyproject_table_android(self):
-        return """
+        return """\
 requires = [
     "toga-android~=0.4.0",
+]
+
+base_theme = "Theme.MaterialComponents.Light.DarkActionBar"
+
+build_gradle_dependencies = [
+    "androidx.appcompat:appcompat:1.6.1",
+    "com.google.android.material:material:1.11.0",
+    # Needed for DetailedList
+    "androidx.swiperefreshlayout:swiperefreshlayout:1.1.0",
 ]
 """
 
     def pyproject_table_web(self):
-        return """
+        return """\
 requires = [
     "toga-web~=0.4.0",
 ]

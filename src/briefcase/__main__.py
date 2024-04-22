@@ -3,7 +3,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from briefcase.cmdline import parse_cmdline
-from briefcase.console import Console, Log
+from briefcase.console import Console, Log, Printer
 from briefcase.exceptions import (
     BriefcaseError,
     BriefcaseTestSuiteFailure,
@@ -15,10 +15,11 @@ from briefcase.exceptions import (
 def main():
     result = 0
     command = None
-    logger = Log()
-    console = Console()
+    printer = Printer()
+    console = Console(printer=printer)
+    logger = Log(printer=printer)
     try:
-        Command, extra_cmdline = parse_cmdline(sys.argv[1:])
+        Command, extra_cmdline = parse_cmdline(sys.argv[1:], console=console)
         command = Command(logger=logger, console=console)
         options, overrides = command.parse_options(extra=extra_cmdline)
         command.parse_config(

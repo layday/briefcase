@@ -7,6 +7,7 @@ import pytest
 import tomli_w
 
 from briefcase.commands.create import _is_local_requirement
+from briefcase.console import LogLevel
 from briefcase.exceptions import BriefcaseCommandError, RequirementsInstallError
 from briefcase.integrations.subprocess import Subprocess
 
@@ -201,10 +202,10 @@ def test_app_packages_invalid_requires(
     # Unfortunately, no way to tell the difference between "offline" and
     # "your requirements are invalid"; pip returns status code 1 for all
     # failures.
-    create_command.tools[
-        myapp
-    ].app_context.run.side_effect = subprocess.CalledProcessError(
-        cmd=["python", "-u", "-m", "pip", "..."], returncode=1
+    create_command.tools[myapp].app_context.run.side_effect = (
+        subprocess.CalledProcessError(
+            cmd=["python", "-u", "-m", "pip", "..."], returncode=1
+        )
     )
 
     with pytest.raises(RequirementsInstallError):
@@ -248,10 +249,10 @@ def test_app_packages_offline(
     # Unfortunately, no way to tell the difference between "offline" and
     # "your requirements are invalid"; pip returns status code 1 for all
     # failures.
-    create_command.tools[
-        myapp
-    ].app_context.run.side_effect = subprocess.CalledProcessError(
-        cmd=["python", "-u", "-m", "pip", "..."], returncode=1
+    create_command.tools[myapp].app_context.run.side_effect = (
+        subprocess.CalledProcessError(
+            cmd=["python", "-u", "-m", "pip", "..."], returncode=1
+        )
     )
 
     with pytest.raises(RequirementsInstallError):
@@ -285,22 +286,24 @@ def test_app_packages_offline(
     assert myapp.test_requires is None
 
 
+@pytest.mark.parametrize("logging_level", [LogLevel.INFO, LogLevel.DEEP_DEBUG])
 def test_app_packages_install_requirements(
     create_command,
     myapp,
     app_packages_path,
     app_packages_path_index,
+    logging_level,
 ):
     """Requirements can be installed."""
+    # Configure logging level
+    create_command.logger.verbosity = logging_level
 
     # Set up the app requirements
     myapp.requires = ["first", "second", "third"]
 
     # The side effect of calling pip is creating installation artefacts
-    create_command.tools[
-        myapp
-    ].app_context.run.side_effect = create_installation_artefacts(
-        app_packages_path, myapp.requires
+    create_command.tools[myapp].app_context.run.side_effect = (
+        create_installation_artefacts(app_packages_path, myapp.requires)
     )
 
     # Install the requirements
@@ -321,10 +324,9 @@ def test_app_packages_install_requirements(
             "--upgrade",
             "--no-user",
             f"--target={app_packages_path}",
-            "first",
-            "second",
-            "third",
-        ],
+        ]
+        + (["-vv"] if logging_level == LogLevel.DEEP_DEBUG else [])
+        + ["first", "second", "third"],
         check=True,
         encoding="UTF-8",
     )
@@ -356,10 +358,8 @@ def test_app_packages_replace_existing_requirements(
     myapp.requires = ["first", "second", "third"]
 
     # The side effect of calling pip is creating installation artefacts
-    create_command.tools[
-        myapp
-    ].app_context.run.side_effect = create_installation_artefacts(
-        app_packages_path, myapp.requires
+    create_command.tools[myapp].app_context.run.side_effect = (
+        create_installation_artefacts(app_packages_path, myapp.requires)
     )
 
     # Install the requirements

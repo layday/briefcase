@@ -9,7 +9,7 @@ iOS Xcode project
 +--------+-------+-----+--------+-------+-----+--------+-----+-------+
 | x86‑64 | arm64 | x86 | x86‑64 | arm64 | x86 | x86‑64 | arm | arm64 |
 +========+=======+=====+========+=======+=====+========+=====+=======+
-| |f|    | |y|   |     |        |       |     |        |     |       |
+| |f|    | |f|   |     |        |       |     |        |     |       |
 +--------+-------+-----+--------+-------+-----+--------+-----+-------+
 
 When generating an iOS project, Briefcase produces an Xcode project.
@@ -92,12 +92,16 @@ Briefcase cross platform permissions map to the following ``info`` keys:
 
 * ``camera``: ``NSCameraUsageDescription``
 * ``microphone``: ``NSMicrophoneUsageDescription``
-* ``coarse_location``: ``NSLocationDefaultAccuracyReduced=True`` if ``fine_location`` is
-  not defined, plus ``NSLocationWhenInUseUsageDescription`` if ``background_location``
-  is not defined
-* ``fine_location``: ``NSLocationDefaultAccuracyReduced=False``, plus
-  ``NSLocationWhenInUseUsageDescription`` if ``background_location`` is not defined
-* ``background_location``: ``NSLocationAlwaysAndWhenInUseUsageDescription``
+* ``coarse_location``
+  - ``NSLocationDefaultAccuracyReduced=True``
+  - ``NSLocationWhenInUseUsageDescription`` if ``fine_location`` is not defined
+* ``fine_location``
+  - ``NSLocationDefaultAccuracyReduced=False``
+  - ``NSLocationWhenInUseUsageDescription``
+* ``background_location``:
+  - ``NSLocationAlwaysAndWhenInUseUsageDescription``
+  - ``NSLocationWhenInUseUsageDescription`` if neither ``fine_location`` or ``coarse_location`` is set
+  - ``UIBackgroundModes`` will include ``location`` and ``processing``
 * ``photo_library``: ``NSPhotoLibraryAddUsageDescription``
 
 Platform quirks

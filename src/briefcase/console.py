@@ -5,12 +5,16 @@ import operator
 import os
 import platform
 import re
+import shutil
 import sys
+import textwrap
+import time
 import traceback
 from contextlib import contextmanager
 from datetime import datetime
 from enum import IntEnum
 from pathlib import Path
+from typing import Callable, Iterable
 
 from rich.console import Console as RichConsole
 from rich.control import strip_control_codes
@@ -23,15 +27,19 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
-from rich.traceback import Traceback
+from rich.traceback import Trace, Traceback
 
 from briefcase import __version__
+
+# Max width for printing to console; matches argparse's default width
+MAX_TEXT_WIDTH = max(min(shutil.get_terminal_size().columns, 80) - 2, 20)
 
 # Regex to identify settings likely to contain sensitive information
 SENSITIVE_SETTING_RE = re.compile(r"API|TOKEN|KEY|SECRET|PASS|SIGNATURE", flags=re.I)
 
 # 7-bit C1 ANSI escape sequences
-ANSI_ESCAPE_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+ANSI_ESC_SEQ_RE_DEF = r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
+ANSI_ESCAPE_RE = re.compile(ANSI_ESC_SEQ_RE_DEF)
 
 
 class InputDisabled(Exception):
@@ -65,38 +73,51 @@ class RichConsoleHighlighter(RegexHighlighter):
     """
 
     base_style = "repr."
-    highlights = [r"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#]*)"]
+    highlights = [
+        r"(?P<url>(file|https|http|ws|wss)://[-0-9a-zA-Z$_+!`(),.?/;:&=%#~]*)"
+    ]
 
 
 class Printer:
-    """Interface for printing and managing output to the console and/or log."""
+    def __init__(self, log_width=180):
+        """Interface for printing and managing output to the console and/or log.
 
-    # Console to manage console output.
-    console = RichConsole(
-        highlighter=RichConsoleHighlighter(), emoji=False, soft_wrap=True
-    )
+        The default width is wide enough to render the output of ``sdkmanager
+        --list_installed`` in the log file without line wrapping.
 
-    # Console to record all logging to a buffer while not printing anything to the console.
-    # We need to be wide enough to render `sdkmanager --list_installed` output without
-    # line wrapping.
-    LOG_FILE_WIDTH = 180
-    # Rich only records what's being logged if it is actually written somewhere;
-    # writing to /dev/null allows Rich to do so without needing to print the logs
-    # in the console or save them to file before it is known a file is wanted.
-    dev_null = open(os.devnull, "w", encoding="utf-8", errors="ignore")
-    log = RichConsole(
-        file=dev_null,
-        record=True,
-        width=LOG_FILE_WIDTH,
-        no_color=True,
-        markup=False,
-        emoji=False,
-        highlight=False,
-        soft_wrap=True,
-    )
+        :param log_width: The width at which content should be wrapped in the log file
+        """
+        self.log_width = log_width
 
-    @classmethod
-    def __call__(cls, *messages, stack_offset=5, show=True, **kwargs):
+        # A wrapper around the console
+        self.console = RichConsole(
+            highlighter=RichConsoleHighlighter(),
+            emoji=False,
+            soft_wrap=True,
+        )
+
+        # Rich only records what's being logged if it is actually written somewhere;
+        # writing to /dev/null allows Rich to do so without needing to print the
+        # logs in the console or save them to file before it is known a file is wanted.
+        self.dev_null = open(os.devnull, "w", encoding="utf-8", errors="ignore")
+        self.log = RichConsole(
+            file=self.dev_null,
+            record=True,
+            width=self.log_width,
+            force_interactive=False,
+            force_terminal=False,
+            no_color=True,
+            color_system=None,
+            markup=False,
+            emoji=False,
+            highlight=False,
+            soft_wrap=True,
+        )
+
+    def __del__(self):
+        self.dev_null.close()
+
+    def __call__(self, *messages, stack_offset=5, show=True, **kwargs):
         """Entry point for all printing to the console and the log.
 
         The log records all content that is printed whether it is shown in the console
@@ -111,23 +132,22 @@ class Printer:
             most uses are 5 levels deep from the actual logging.
         """
         if show:
-            cls.to_console(*messages, **kwargs)
-        cls.to_log(*messages, stack_offset=stack_offset, **kwargs)
+            self.to_console(*messages, **kwargs)
+        self.to_log(*messages, stack_offset=stack_offset, **kwargs)
 
-    @classmethod
-    def to_console(cls, *messages, **kwargs):
+    def to_console(self, *messages, **kwargs):
         """Write only to the console and skip writing to the log."""
-        cls.console.print(*messages, **kwargs)
+        self.console.print(*messages, **kwargs)
 
-    @classmethod
-    def to_log(cls, *messages, stack_offset=5, **kwargs):
+    def to_log(self, *messages, stack_offset=5, **kwargs):
         """Write only to the log and skip writing to the console."""
-        cls.log.log(*map(sanitize_text, messages), _stack_offset=stack_offset, **kwargs)
+        self.log.log(
+            *map(sanitize_text, messages), _stack_offset=stack_offset, **kwargs
+        )
 
-    @classmethod
-    def export_log(cls):
+    def export_log(self):
         """Export the text of the entire log; the log is also cleared."""
-        return cls.log.export_text()
+        return self.log.export_text()
 
 
 class RichLoggingStream:
@@ -162,9 +182,13 @@ class Log:
     # subdirectory of command.base_path to store log files
     LOG_DIR = "logs"
 
-    def __init__(self, printer=Printer(), verbosity: LogLevel = LogLevel.INFO):
-        self.print = printer
-        # --verbosity flag: 0 for info, 1 for debug, 2 for deep debug
+    def __init__(
+        self,
+        printer: Printer | None = None,
+        verbosity: LogLevel = LogLevel.INFO,
+    ):
+        self.print = Printer() if printer is None else printer
+        # --verbosity flag: see LogLevel for valid values
         self.verbosity = verbosity
         # --log flag to force logfile creation
         self.save_log = False
@@ -172,14 +196,14 @@ class Log:
         self.skip_log = False
         # Rich stacktraces of exceptions for logging to file.
         # A list of tuples containing a label for the thread context, and the Trace object
-        self.stacktraces = []
+        self.stacktraces: list[tuple[str, Trace]] = []
         # functions to run for additional logging if creating a logfile
-        self.log_file_extras = []
+        self.log_file_extras: list[Callable[[], object]] = []
         # The current context for the log
         self._context = ""
 
     @contextmanager
-    def context(self, context):
+    def context(self, context: str):
         """Wrap a collection of output in a logging context.
 
         A logging context is a prefix on every logging line. It is used when a set of
@@ -258,7 +282,7 @@ class Log:
         )
 
     def verbose(self, message="", *, prefix="", markup=False):
-        """Log message at verbose level if debug enabled; included if verbosity >= 1."""
+        """Log message at verbose level; included if verbosity >= 1."""
         self._log(prefix=prefix, message=message, show=self.is_verbose, markup=markup)
 
     def info(self, message="", *, prefix="", markup=False):
@@ -345,7 +369,7 @@ class Log:
 
         self.stacktraces.append((label, Traceback.extract(*exc_info, show_locals=True)))
 
-    def add_log_file_extra(self, func):
+    def add_log_file_extra(self, func: Callable[[], object]):
         """Register a function to be called in the event that a log file is written.
 
         This can be used to provide additional debugging information which is too
@@ -379,9 +403,9 @@ class Log:
                 self.warning(f"Log saved to {log_filepath}")
             self.print.to_console()
 
-    def _build_log(self, command):
+    def _build_log(self, command) -> str:
         """Accumulate all information to include in the log file."""
-        # add the exception stacktrace to end of log if one was captured
+        # Add the exception stacktraces to end of log if any were captured
         if self.stacktraces:
             # using print.log.print() instead of print.to_log() to avoid
             # timestamp and code location inclusion for the stacktrace box.
@@ -390,12 +414,13 @@ class Log:
                     f"{thread} traceback:",
                     Traceback(
                         trace=stacktrace,
-                        width=self.print.LOG_FILE_WIDTH,
+                        width=self.print.log_width,
                         show_locals=True,
                     ),
                     new_line_start=True,
                 )
 
+        # Retrieve additional logging added by the Command
         if self.log_file_extras:
             with command.input.wait_bar(
                 "Collecting extra information for log...",
@@ -409,21 +434,30 @@ class Log:
                     except Exception:
                         self.error(traceback.format_exc())
 
-        # build log header and export buffered log from Rich
-        uname = platform.uname()
+        # Capture env vars removing any potentially sensitive information
         sanitized_env_vars = "\n".join(
             f"\t{env_var}={value if not SENSITIVE_SETTING_RE.search(env_var) else '********************'}"
             for env_var, value in sorted(command.tools.os.environ.items())
         )
+
+        # Capture pyproject.toml if one exists in the current directory
+        try:
+            with open(Path.cwd() / "pyproject.toml", encoding="utf-8") as f:
+                pyproject_toml = f.read().strip()
+        except OSError as e:
+            pyproject_toml = str(e)
+
+        # Build log with buffered log from Rich
+        uname = platform.uname()
         return (
             f"Date/Time:       {datetime.now().strftime('%Y-%m-%d %H:%M:%S %Z')}\n"
             f"Command line:    {' '.join(sys.argv)}\n"
-            f"\n"
+            "\n"
             f"OS Release:      {uname.system} {uname.release}\n"
             f"OS Version:      {uname.version}\n"
             f"Architecture:    {uname.machine}\n"
             f"Platform:        {platform.platform(aliased=True)}\n"
-            f"\n"
+            "\n"
             f"Python exe:      {sys.executable}\n"
             # replace line breaks with spaces (use chr(10) since '\n' isn't allowed in f-strings...)
             f"Python version:  {sys.version.replace(chr(10), ' ')}\n"
@@ -433,26 +467,57 @@ class Log:
             f"Virtual env:     {hasattr(sys, 'real_prefix') or sys.base_prefix != sys.prefix}\n"
             # for conda, prefix and base_prefix are likely the same but contain a conda-meta dir.
             f"Conda env:       {(Path(sys.prefix) / 'conda-meta').exists()}\n"
-            f"\n"
+            "\n"
             f"Briefcase:       {__version__}\n"
             f"Target platform: {command.platform}\n"
             f"Target format:   {command.output_format}\n"
-            f"\n"
-            f"Environment Variables:\n"
+            "\n"
+            "Environment Variables:\n"
             f"{sanitized_env_vars}\n"
-            f"\n"
-            f"Briefcase Log:\n"
+            "\n"
+            "pyproject.toml:\n"
+            f"{pyproject_toml}\n"
+            "\n"
+            "Briefcase Log:\n"
             f"{self.print.export_log()}"
         )
 
 
+class NotDeadYet:
+    # I’m getting better! No you’re not, you’ll be stone dead in a minute.
+
+    def __init__(self, printer: Printer):
+        """A keep-alive spinner for long-running processes without console output.
+
+        Returned by the Wait Bar's context manager but can be used independently. Use in
+        a loop that calls update() each iteration. A keep-alive message will be printed
+        every 10 seconds.
+        """
+        self.printer: Printer = printer
+        self.interval_sec: int = 10
+        self.message: str = "... still waiting"
+        self.ready_time: float = 0.0
+
+        self.reset()  # initialize
+
+    def update(self):
+        """Write keep-alive message if the periodic interval has elapsed."""
+        if self.ready_time < time.time():
+            self.printer(self.message)
+            self.reset()
+
+    def reset(self):
+        """Initialize periodic interval to now; next message prints after interval."""
+        self.ready_time = time.time() + self.interval_sec
+
+
 class Console:
-    def __init__(self, printer=Printer(), enabled=True):
+    def __init__(self, printer: Printer | None = None, enabled: bool = True):
         self.enabled = enabled
-        self.print = printer
+        self.print = Printer() if printer is None else printer
         # Use Rich's input() to read from user
-        self.input = printer.console.input
-        self._wait_bar: Progress = None
+        self.input = self.print.console.input
+        self._wait_bar: Progress | None = None
         # Signal that Rich is dynamically controlling the console output. Therefore,
         # all output must be printed to the screen by Rich to prevent corruption of
         # dynamic elements like the Wait Bar.
@@ -470,7 +535,22 @@ class Console:
         can dramatically compromise the quality of logged output. So, dynamic elements
         should be specifically disabled in non-interactive sessions.
         """
-        return sys.stdout.isatty()
+        # `sys.__stdout__` is used because Rich captures and redirects `sys.stdout`
+        return sys.__stdout__.isatty()
+
+    @property
+    def is_color_enabled(self):
+        """Is the underlying Rich console using color?
+
+        Rich can be explicitly configured to not use color at Console initialization or
+        the NO_COLOR environment variable; alternatively, the derived color system for
+        the terminal is influenced by attributes of the platform as well as FORCE_COLOR.
+        """
+        # no_color has precedence since color_system can be set even if color is disabled
+        if self.print.console.no_color:
+            return False
+        else:
+            return self.print.console.color_system is not None
 
     def progress_bar(self):
         """Returns a progress bar as a context manager."""
@@ -488,12 +568,12 @@ class Console:
     @contextmanager
     def wait_bar(
         self,
-        message="",
-        done_message="done",
+        message: str = "",
+        done_message: str = "done",
         *,
-        transient=False,
-        markup=False,
-    ):
+        transient: bool = False,
+        markup: bool = False,
+    ) -> NotDeadYet:
         """Activates the Wait Bar as a context manager.
 
         If the Wait Bar is already active, then its message is updated for the new
@@ -506,35 +586,47 @@ class Console:
             if False (default), the message will remain on the screen without pulsing bar.
         :param markup: whether to interpret Rich styling markup in the message; if True,
             the message must already be escaped; defaults False.
+        :returns:  Keep-alive spinner to notify user Briefcase is still waiting
         """
+        is_wait_bar_disabled = not self.is_interactive
+        show_outcome_message = message and (is_wait_bar_disabled or not transient)
+
         if self._wait_bar is None:
             self._wait_bar = Progress(
                 TextColumn("    "),
                 BarColumn(bar_width=20, style="black", pulse_style="white"),
                 TextColumn("{task.fields[message]}"),
                 transient=True,
-                disable=not self.is_interactive,
+                disable=is_wait_bar_disabled,
                 console=self.print.console,
             )
             # start=False causes the progress bar to "pulse"
             # message=None is a sentinel the Wait Bar should be inactive
             self._wait_bar.add_task("", start=False, message=None)
 
+        self.print(
+            f"{message} started", markup=markup, show=message and is_wait_bar_disabled
+        )
+
         self.is_console_controlled = True
         wait_bar_task = self._wait_bar.tasks[0]
         previous_message = wait_bar_task.fields["message"]
         self._wait_bar.update(wait_bar_task.id, message=message)
+
         try:
             self._wait_bar.start()
-            yield
-        except BaseException:
-            # ensure the message is left on the screen even if user sends CTRL+C
-            if message and not transient:
-                self.print(message, markup=markup)
+            yield NotDeadYet(printer=self.print)
+        except BaseException as e:
+            # capture BaseException so message is left on the screen even if user sends CTRL+C
+            error_message = "aborted" if isinstance(e, KeyboardInterrupt) else "errored"
+            self.print(
+                f"{message} {error_message}", markup=markup, show=show_outcome_message
+            )
             raise
         else:
-            if message and not transient:
-                self.print(f"{message} {done_message}", markup=markup)
+            self.print(
+                f"{message} {done_message}", markup=markup, show=show_outcome_message
+            )
         finally:
             self._wait_bar.update(wait_bar_task.id, message=previous_message)
             # Deactivate the Wait Bar if returning to its initial state
@@ -569,8 +661,16 @@ class Console:
             if is_wait_bar_running:
                 self._wait_bar.start()
 
+    def textwrap(self, text: str, width: int = MAX_TEXT_WIDTH) -> str:
+        """Wrap text to the console width, a default max width, or a specified width."""
+        # textwrap isn't really designed to format text that already contains newlines.
+        # So, instead, break the text by newlines and format each line individually.
+        return "\n".join(
+            "\n".join(textwrap.wrap(line, width)) for line in text.splitlines()
+        )
+
     def prompt(self, *values, markup=False, **kwargs):
-        """Print to the screen for soliciting user interaction.
+        """Print to the screen for soliciting user interaction if input enabled.
 
         :param values: strings to print as the user prompt
         :param markup: True if prompt contains Rich markup
@@ -578,7 +678,7 @@ class Console:
         if self.enabled:
             self.print(*values, markup=markup, stack_offset=4, **kwargs)
 
-    def boolean_input(self, question, default=False):
+    def boolean_input(self, question: str, default: bool = False) -> bool:
         """Get a boolean input from user, in the form of y/n.
 
         The user might press "y" for true or "n" for false. If input is disabled,
@@ -616,12 +716,12 @@ class Console:
 
     def selection_input(
         self,
-        prompt,
-        choices,
-        default=None,
-        error_message="Invalid Selection",
-        transform=None,
-    ):
+        prompt: str,
+        choices: Iterable[str],
+        default: str | None = None,
+        error_message: str = "Invalid Selection",
+        transform: Callable[[str], str] | None = None,
+    ) -> str:
         """Prompt the user to select an option from a list of choices.
 
         :param prompt: The text prompt to display
@@ -643,7 +743,7 @@ class Console:
             self.prompt()
             self.prompt(error_message)
 
-    def text_input(self, prompt, default=None):
+    def text_input(self, prompt: str, default: str | None = None) -> str:
         """Prompt the user for text input.
 
         If no default is specified, the input will be returned as entered.
@@ -666,8 +766,8 @@ class Console:
 
         return user_input
 
-    def __call__(self, prompt, *, markup=False):
-        """Present input() interface."""
+    def __call__(self, prompt: str, *, markup: bool = False):
+        """Present input() interface; prompt should be bold if markup is included."""
         if not self.enabled:
             raise InputDisabled()
 

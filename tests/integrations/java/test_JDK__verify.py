@@ -15,6 +15,7 @@ from briefcase.exceptions import (
 )
 from briefcase.integrations.java import JDK
 
+from ...utils import assert_url_resolvable
 from .conftest import JDK_BUILD, JDK_RELEASE
 
 CALL_JAVA_HOME = mock.call(["/usr/libexec/java_home"])
@@ -72,7 +73,7 @@ def test_macos_tool_java_home(mock_tools, capsys):
     assert mock_tools.subprocess.check_output.mock_calls == [
         CALL_JAVA_HOME,
         # Second is a call to verify a valid Java version
-        mock.call([os.fsdecode(Path("/path/to/java/bin/javac")), "-version"]),
+        mock.call([Path("/path/to/java/bin/javac"), "-version"]),
     ]
 
     # No console output
@@ -131,7 +132,7 @@ def test_macos_wrong_jdk_version(mock_tools, tmp_path, capsys):
 
     assert mock_tools.subprocess.check_output.mock_calls == [
         CALL_JAVA_HOME,
-        mock.call([os.fsdecode(Path("/path/to/java/bin/javac")), "-version"]),
+        mock.call([Path("/path/to/java/bin/javac"), "-version"]),
     ]
 
     # No console output
@@ -163,7 +164,7 @@ def test_macos_invalid_jdk_path(mock_tools, tmp_path, capsys):
 
     assert mock_tools.subprocess.check_output.mock_calls == [
         CALL_JAVA_HOME,
-        mock.call([os.fsdecode(Path("/path/to/java/bin/javac")), "-version"]),
+        mock.call([Path("/path/to/java/bin/javac"), "-version"]),
     ]
 
     # No console output
@@ -191,7 +192,7 @@ def test_macos_provided_overrides_tool_java_home(mock_tools, capsys):
 
     # A single call to check output
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/java/bin/javac")), "-version"],
+        [Path("/path/to/java/bin/javac"), "-version"],
     ),
 
     # No console output
@@ -217,7 +218,7 @@ def test_valid_provided_java_home(mock_tools, capsys):
 
     # A single call to check output
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/java/bin/javac")), "-version"],
+        [Path("/path/to/java/bin/javac"), "-version"],
     ),
 
     # No console output
@@ -257,7 +258,7 @@ def test_invalid_jdk_version(mock_tools, host_os, java_home, tmp_path, capsys):
 
     # A single call was made to check javac
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/java/bin/javac")), "-version"],
+        [Path("/path/to/java/bin/javac"), "-version"],
     )
 
     # Warning is shown for invalid JAVA_HOME
@@ -304,7 +305,7 @@ def test_no_javac(mock_tools, host_os, java_home, error_type, tmp_path, capsys):
 
     # A single call was made to check javac
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/nowhere/bin/javac")), "-version"],
+        [Path("/path/to/nowhere/bin/javac"), "-version"],
     ),
 
     # Warning is shown for invalid JAVA_HOME
@@ -346,7 +347,7 @@ def test_javac_error(mock_tools, host_os, java_home, tmp_path, capsys):
 
     # A single call was made to check javac
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/nowhere/bin/javac")), "-version"],
+        [Path("/path/to/nowhere/bin/javac"), "-version"],
     ),
 
     # Warning is shown for invalid JAVA_HOME
@@ -386,7 +387,7 @@ def test_unparseable_javac_version(mock_tools, host_os, java_home, tmp_path, cap
 
     # A single call was made to check javac
     mock_tools.subprocess.check_output.assert_called_once_with(
-        [os.fsdecode(Path("/path/to/nowhere/bin/javac")), "-version"],
+        [Path("/path/to/nowhere/bin/javac"), "-version"],
     ),
 
     # No console output (because Briefcase JDK exists)
@@ -518,6 +519,8 @@ def test_successful_jdk_download(
     )
     # The original archive was deleted
     archive.unlink.assert_called_once_with()
+    # The download URL for JDK exists
+    assert_url_resolvable(mock_tools.java.OpenJDK_download_url)
 
 
 def test_not_installed(mock_tools, tmp_path):

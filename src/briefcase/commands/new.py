@@ -1,16 +1,13 @@
 from __future__ import annotations
 
 import re
-import shutil
 import sys
-import textwrap
 import unicodedata
 from collections import OrderedDict
+from collections.abc import Sequence
 from email.utils import parseaddr
 from typing import Iterable
 from urllib.parse import urlparse
-
-from packaging.version import Version
 
 if sys.version_info >= (3, 10):  # pragma: no-cover-if-lt-py310
     from importlib.metadata import entry_points
@@ -19,20 +16,18 @@ else:  # pragma: no-cover-if-gte-py310
     # so, the backport package must be used on older versions.
     from importlib_metadata import entry_points
 
-import briefcase
 from briefcase.bootstraps import BaseGuiBootstrap
 from briefcase.config import (
     is_valid_app_name,
     is_valid_bundle_identifier,
     make_class_name,
 )
-from briefcase.console import select_option
-from briefcase.exceptions import BriefcaseCommandError, TemplateUnsupportedVersion
+from briefcase.console import MAX_TEXT_WIDTH
+from briefcase.console import select_option as _select_option
+from briefcase.exceptions import BriefcaseCommandError
 from briefcase.integrations.git import Git
 
 from .base import BaseCommand
-
-MAX_TEXT_WIDTH = max(min(shutil.get_terminal_size().columns, 80) - 2, 20)
 
 
 def titlecase(s):
@@ -47,32 +42,34 @@ def titlecase(s):
     :returns: A capitalized string.
     """
     return " ".join(
-        word
-        if (
-            word.isupper()
-            or word
-            in {
-                "a",
-                "an",
-                "and",
-                "as",
-                "at",
-                "but",
-                "by",
-                "en",
-                "for",
-                "if",
-                "in",
-                "of",
-                "on",
-                "or",
-                "the",
-                "to",
-                "via",
-                "vs",
-            }
+        (
+            word
+            if (
+                word.isupper()
+                or word
+                in {
+                    "a",
+                    "an",
+                    "and",
+                    "as",
+                    "at",
+                    "but",
+                    "by",
+                    "en",
+                    "for",
+                    "if",
+                    "in",
+                    "of",
+                    "on",
+                    "or",
+                    "the",
+                    "to",
+                    "via",
+                    "vs",
+                }
+            )
+            else word.capitalize()
         )
-        else word.capitalize()
         for word in s.split(" ")
     )
 
@@ -167,6 +164,21 @@ class NewCommand(BaseCommand):
             # use a dummy app name as the suggestion.
             return "myapp"
 
+    def _validate_existing_app_name(self, candidate):
+        """Perform internal validation preventing the use of pre-existing app names.
+
+        Invoked by validate_app_name; subclasses may override this behavior.
+        """
+        if (self.base_path / candidate).exists():
+            raise ValueError(
+                self.input.textwrap(
+                    f"A {candidate!r} directory already exists.\n"
+                    f"\n"
+                    f"Select a different name, move to a different parent directory, or "
+                    f"delete the existing folder."
+                )
+            )
+
     def validate_app_name(self, candidate):
         """Determine if the app name is valid.
 
@@ -176,18 +188,18 @@ class NewCommand(BaseCommand):
         """
         if not is_valid_app_name(candidate):
             raise ValueError(
-                f"{candidate!r} is not a valid app name.\n\n"
-                "App names must not be reserved keywords such as 'and', 'for' and 'while'.\n"
-                "They must also be PEP508 compliant (i.e., they can only include letters,\n"
-                "numbers, '-' and '_'; must start with a letter; and cannot end with '-' or '_')."
+                self.input.textwrap(
+                    f"{candidate!r} is not a valid app name.\n"
+                    "\n"
+                    "App names must not be reserved keywords such as 'and', 'for' and "
+                    "'while'. They must also be PEP508 compliant (i.e., they can only "
+                    "include letters, numbers, '-' and '_'; must start with a letter; "
+                    "and cannot end with '-' or '_')."
+                )
             )
 
-        if (self.base_path / candidate).exists():
-            raise ValueError(
-                f"A {candidate!r} directory already exists. Select a different "
-                "name, move to a different parent directory, or delete the "
-                "existing folder."
-            )
+        # Validate if the existing app name
+        self._validate_existing_app_name(candidate)
 
         return True
 
@@ -208,11 +220,14 @@ class NewCommand(BaseCommand):
         """
         if not is_valid_bundle_identifier(candidate):
             raise ValueError(
-                f"{candidate!r} is not a valid bundle identifier.\n\n"
-                "The bundle should be a reversed domain name. It must contain at least 2\n"
-                "dot-separated sections; each section may only include letters, numbers,\n"
-                "and hyphens; and each section may not contain any reserved words (like\n"
-                "'switch', or 'while')."
+                self.input.textwrap(
+                    f"{candidate!r} is not a valid bundle identifier.\n"
+                    "\n"
+                    "The bundle should be a reversed domain name. It must contain at "
+                    "least 2 dot-separated sections; each section may only include "
+                    "letters, numbers, and hyphens; and each section may not contain any "
+                    "reserved words (like 'switch', or 'while')."
+                )
             )
 
         return True
@@ -275,6 +290,8 @@ class NewCommand(BaseCommand):
         result = urlparse(candidate)
         if not all([result.scheme, result.netloc]):
             raise ValueError("Not a valid URL!")
+        if result.scheme not in {"http", "https"}:
+            raise ValueError("Not a valid website URL!")
         return True
 
     def prompt_divider(self, title: str = ""):
@@ -287,14 +304,7 @@ class NewCommand(BaseCommand):
     def prompt_intro(self, intro: str):
         """Write the introduction for a prompt."""
         self.input.prompt()
-        # textwrap isn't really designed to format text that already contains newlines.
-        # So, instead, break the intro by newlines and format each line individually.
-        self.input.prompt(
-            "\n".join(
-                "\n".join(textwrap.wrap(line, MAX_TEXT_WIDTH))
-                for line in intro.splitlines()
-            )
-        )
+        self.input.prompt(self.input.textwrap(intro))
         self.input.prompt()
 
     def validate_user_input(self, validator, answer) -> bool:
@@ -361,25 +371,77 @@ class NewCommand(BaseCommand):
 
             self.input.prompt()
 
-    def build_context(
+    def select_option(
         self,
-        template_source: str,
-        template_branch: str,
-        briefcase_version: Version,
-        project_overrides: dict[str, str],
-    ) -> dict[str, str]:
+        intro: str,
+        variable: str,
+        default: str | None,
+        options: Sequence[str],
+        override_value: str | None,
+    ) -> str:
+        variable = titlecase(variable)
+        self.prompt_divider(title=variable)
+
+        if override_value is not None:
+            if self.validate_selection_override(options, override_value):
+                return override_value
+            else:
+                self.logger.warning(
+                    f"Invalid override value {override_value!r} for {variable}, using user-provided value."
+                )
+
+        if default is not None:
+            default = str(options.index(default) + 1)
+        else:
+            default = "1"
+
+        self.prompt_intro(intro=intro)
+        return _select_option(
+            prompt=f"{variable} [{default}]:",
+            input=self.input,
+            default=default,
+            options=list(zip(options, options)),
+        )
+
+    def input_project_name(self, formal_name, override_value):
+        return self.input_text(
+            intro=(
+                "Briefcase can manage projects that contain multiple applications, so "
+                "we need a Project name.\n"
+                "\n"
+                "If you're only planning to have one application in this project, you "
+                "can use the formal name as the project name."
+            ),
+            variable="project name",
+            default=formal_name,
+            override_value=override_value,
+        )
+
+    def input_license(self, override_value: str | None):
+        licenses = [
+            "BSD license",
+            "MIT license",
+            "Apache Software License",
+            "GNU General Public License v2 (GPLv2)",
+            "GNU General Public License v2 or later (GPLv2+)",
+            "GNU General Public License v3 (GPLv3)",
+            "GNU General Public License v3 or later (GPLv3+)",
+            "Proprietary",
+            "Other",
+        ]
+        return self.select_option(
+            intro="What license do you want to use for this project's code?",
+            variable="Project License",
+            options=licenses,
+            default=None,
+            override_value=override_value,
+        )
+
+    def build_context(self, project_overrides: dict[str, str]) -> dict[str, str]:
         """Builds the cookiecutter context dict for the new project."""
         context = self.build_app_context(project_overrides)
-        # Additional context for the Briefcase template pyproject.toml header to
-        # include the version of Briefcase as well as the source of the template.
-        context.update(
-            {
-                "template_source": template_source,
-                "template_branch": template_branch,
-                "briefcase_version": str(briefcase_version),
-            }
-        )
         context.update(self.build_gui_context(context, project_overrides))
+
         return context
 
     def build_app_context(self, project_overrides: dict[str, str]) -> dict[str, str]:
@@ -425,6 +487,8 @@ class NewCommand(BaseCommand):
 
         # The module name can be completely derived from the app name.
         module_name = self.make_module_name(app_name)
+        source_dir = f"src/{module_name}"
+        test_source_dir = "tests"
 
         bundle = self.input_text(
             intro=(
@@ -436,7 +500,7 @@ class NewCommand(BaseCommand):
                 "usually the domain name of your company or project, in reverse order.\n"
                 "\n"
                 "For example, if you are writing an application for Example Corp, "
-                "whose website is example.com, your bundle would be ``com.example``. "
+                "whose website is example.com, your bundle would be 'com.example'. "
                 "The bundle will be combined with your application's machine readable "
                 "name to form a complete application identifier (e.g., "
                 f"com.example.{app_name})."
@@ -447,17 +511,8 @@ class NewCommand(BaseCommand):
             override_value=project_overrides.pop("bundle", None),
         )
 
-        project_name = self.input_text(
-            intro=(
-                "Briefcase can manage projects that contain multiple applications, so "
-                "we need a Project name.\n"
-                "\n"
-                "If you're only planning to have one application in this project, you "
-                "can use the formal name as the project name."
-            ),
-            variable="project name",
-            default=formal_name,
-            override_value=project_overrides.pop("project_name", None),
+        project_name = self.input_project_name(
+            formal_name, project_overrides.pop("project_name", None)
         )
 
         description = self.input_text(
@@ -503,42 +558,17 @@ class NewCommand(BaseCommand):
             validator=self.validate_url,
             override_value=project_overrides.pop("url", None),
         )
-
-        licenses = [
-            "BSD license",
-            "MIT license",
-            "Apache Software License",
-            "GNU General Public License v2 (GPLv2)",
-            "GNU General Public License v2 or later (GPLv2+)",
-            "GNU General Public License v3 (GPLv3)",
-            "GNU General Public License v3 or later (GPLv3+)",
-            "Proprietary",
-            "Other",
-        ]
-
-        self.prompt_divider(title="Project License")
-
-        project_license = None
-        if license_override := project_overrides.pop("license", None):
-            if self.validate_selection_override(licenses, license_override):
-                project_license = license_override
-
-        if not project_license:
-            self.prompt_intro(
-                "What license do you want to use for this project's code?"
-            )
-            project_license = select_option(
-                prompt="Project License [1]: ",
-                input=self.input,
-                default="1",
-                options=list(zip(licenses, licenses)),
-            )
+        project_license = self.input_license(
+            override_value=project_overrides.pop("license", None)
+        )
 
         return {
             "formal_name": formal_name,
             "app_name": app_name,
             "class_name": class_name,
             "module_name": module_name,
+            "source_dir": source_dir,
+            "test_source_dir": test_source_dir,
             "project_name": project_name,
             "description": description,
             "author": author,
@@ -555,22 +585,28 @@ class NewCommand(BaseCommand):
     ) -> dict[str, str]:
         """Build context specific to the GUI toolkit."""
         bootstraps = get_gui_bootstraps()
+        bootstrap_options = self._gui_bootstrap_choices(bootstraps)
 
-        self.prompt_divider(title="GUI Framework")
-
-        bootstrap_class = None
+        # Map the override value to the annotated override value so we can use it with self.select_option
+        # If a user specifies the override value PySide6, then we want it to be mapped to the annotated value
+        # "PySide6       (does not support iOS/Android deployment)"
+        # since that is the option presented to the user. To accomplish this, we map the bootstrap classes
+        # to their annotated names and do a reverse lookup from the override bootstrap class to the annotated name.
+        #
+        # We do it this way to ensure consistent prompting for the user.
         if bootstrap_override := project_overrides.pop("bootstrap", None):
+            reverse_lookup = {v: k for k, v in bootstrap_options.items()}
             if self.validate_selection_override(bootstraps.keys(), bootstrap_override):
-                bootstrap_class = bootstraps[bootstrap_override]
+                bootstrap_override = reverse_lookup[bootstraps[bootstrap_override]]
 
-        if not bootstrap_class:
-            self.prompt_intro("What GUI toolkit do you want to use for this project?")
-            bootstrap_class = select_option(
-                prompt="GUI Framework [1]: ",
-                input=self.input,
-                default="1",
-                options=self._gui_bootstrap_choices(bootstraps),
-            )
+        selected_bootstrap = self.select_option(
+            intro="What GUI toolkit do you want to use for this project?",
+            variable="GUI Framework",
+            default=None,
+            options=bootstrap_options.keys(),
+            override_value=bootstrap_override,
+        )
+        bootstrap_class = bootstrap_options[selected_bootstrap]
 
         gui_context = {}
 
@@ -610,14 +646,26 @@ class NewCommand(BaseCommand):
         # The name of the bootstrap is its registered entry point name. Along with the
         # bootstrap's name, a short message important to a user's choice can be shown
         # also; for instance, several show "does not support iOS/Android deployment".
-        bootstrap_choices = []
+        bootstrap_choices = {}
         max_len = max(map(len, ordered))
         for name, klass in ordered.items():
             if annotation := getattr(klass, "display_name_annotation", ""):
                 annotation = f"{' ' * (max_len - len(name))} ({annotation})"
-            bootstrap_choices.append((klass, f"{name}{annotation or ''}"))
+            bootstrap_choices[f"{name}{annotation or ''}"] = klass
 
         return bootstrap_choices
+
+    def warn_unused_overrides(self, project_overrides: dict[str, str] | None):
+        """Inform user of project configuration overrides that were not used."""
+        if project_overrides:
+            unused_overrides = "\n    ".join(
+                f"{key} = {value}" for key, value in project_overrides.items()
+            )
+            self.logger.warning()
+            self.logger.warning(
+                "WARNING: These project configuration overrides were not used:\n\n"
+                f"    {unused_overrides}"
+            )
 
     def new_app(
         self,
@@ -631,30 +679,10 @@ class NewCommand(BaseCommand):
         self.input.prompt()
         self.input.prompt("Let's build a new Briefcase app!")
 
-        if template is None:
-            template = "https://github.com/beeware/briefcase-template"
-
-        # If a branch wasn't supplied through the --template-branch argument,
-        # use the branch derived from the Briefcase version
-        version = Version(briefcase.__version__)
-        if template_branch is None:
-            branch = f"v{version.base_version}"
-        else:
-            branch = template_branch
-
-        context = self.build_context(template, branch, version, project_overrides)
+        context = self.build_context(project_overrides=project_overrides)
         self.prompt_divider()  # close the prompting section of output
 
-        # Inform user of project configuration overrides that were not used
-        if project_overrides:
-            unused_overrides = "\n    ".join(
-                f"{key} = {value}" for key, value in project_overrides.items()
-            )
-            self.logger.warning()
-            self.logger.warning(
-                "WARNING: These project configuration overrides were not used:\n\n"
-                f"    {unused_overrides}"
-            )
+        self.warn_unused_overrides(project_overrides)
 
         self.logger.info(
             f"Generating a new application {context['formal_name']!r}",
@@ -667,32 +695,17 @@ class NewCommand(BaseCommand):
                 f"A directory named {context['app_name']!r} already exists."
             )
 
-        try:
-            self.logger.info(f"Using app template: {template}, branch {branch}")
-            # Unroll the new app template
-            self.generate_template(
-                template=template,
-                branch=branch,
-                output_path=self.base_path,
-                extra_context=context,
-            )
-        except TemplateUnsupportedVersion:
-            # If we're *not* on a development branch, raise an error about
-            # the missing template branch.
-            if version.dev is None:
-                raise
-
-            # Development branches can use the main template.
-            self.logger.info(
-                f"Template branch {branch} not found; falling back to development template"
-            )
-            branch = "main"
-            self.generate_template(
-                template=template,
-                branch=branch,
-                output_path=self.base_path,
-                extra_context=context,
-            )
+        # Create the project files
+        self.generate_template(
+            template=(
+                template
+                if template
+                else "https://github.com/beeware/briefcase-template"
+            ),
+            branch=template_branch,
+            output_path=self.base_path,
+            extra_context=context,
+        )
 
         self.logger.info(
             f"Generated new application {context['formal_name']!r}",

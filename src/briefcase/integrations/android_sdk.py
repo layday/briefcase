@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import time
-from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -452,7 +451,7 @@ Delete {cmdline_tools_zip_path} and run briefcase again.
             # Using subprocess.run() with no I/O redirection so the user sees
             # the full output and can send input.
             self.tools.subprocess.run(
-                [os.fsdecode(self.sdkmanager_path), "--update"],
+                [self.sdkmanager_path, "--update"],
                 env=self.env,
                 check=True,
                 stream_output=False,
@@ -558,7 +557,7 @@ its output for errors.
         try:
             # check_output always writes its output to debug
             self.tools.subprocess.check_output(
-                [os.fsdecode(self.sdkmanager_path), "--list_installed"],
+                [self.sdkmanager_path, "--list_installed"],
                 env=self.env,
             )
         except subprocess.CalledProcessError as e:
@@ -594,7 +593,7 @@ before you may use those tools.
             # Using subprocess.run() with no I/O redirection so the user sees
             # the full output and can send input.
             self.tools.subprocess.run(
-                [os.fsdecode(self.sdkmanager_path), "--licenses"],
+                [self.sdkmanager_path, "--licenses"],
                 env=self.env,
                 check=True,
                 stream_output=False,
@@ -642,11 +641,7 @@ connection.
         self.tools.logger.info("Downloading the Android emulator...")
         try:
             self.tools.subprocess.run(
-                [
-                    os.fsdecode(self.sdkmanager_path),
-                    "platform-tools",
-                    "emulator",
-                ],
+                [self.sdkmanager_path, "platform-tools", "emulator"],
                 env=self.env,
                 check=True,
                 stream_output=False,
@@ -772,10 +767,7 @@ connection.
         )
         try:
             self.tools.subprocess.run(
-                [
-                    os.fsdecode(self.sdkmanager_path),
-                    system_image,
-                ],
+                [self.sdkmanager_path, system_image],
                 env=self.env,
                 check=True,
                 stream_output=False,
@@ -822,10 +814,10 @@ connection.
                     extract_dir=skin_path,
                     **({"filter": "data"} if sys.version_info >= (3, 12) else {}),
                 )
-            except (shutil.ReadError, EOFError) as err:
+            except (shutil.ReadError, EOFError) as e:
                 raise BriefcaseCommandError(
                     f"Unable to unpack {skin} device skin."
-                ) from err
+                ) from e
 
             # Delete the downloaded file.
             skin_tgz_path.unlink()
@@ -833,23 +825,24 @@ connection.
     def emulators(self) -> list[str]:
         """Find the list of emulators that are available."""
         try:
-            # Capture `stderr` so that if the process exits with failure, the
-            # stderr data is in `e.output`.
-            output = self.tools.subprocess.check_output(
-                [os.fsdecode(self.emulator_path), "-list-avds"]
+            emulators = self.tools.subprocess.check_output(
+                [self.emulator_path, "-list-avds"]
             ).strip()
-            # AVD names are returned one per line.
-            if len(output) == 0:
-                return []
-            return output.split("\n")
         except subprocess.CalledProcessError as e:
             raise BriefcaseCommandError("Unable to obtain Android emulator list") from e
+        else:
+            return [
+                emu
+                for emu in emulators.split("\n")
+                # ignore any logging output included in output list
+                if emu and not emu.startswith(("INFO    |", "WARNING |", "ERROR   |"))
+            ]
 
     def devices(self) -> dict[str, dict[str, str | bool]]:
         """Find the devices that are attached and available to ADB."""
         try:
             output = self.tools.subprocess.check_output(
-                [os.fsdecode(self.adb_path), "devices", "-l"]
+                [self.adb_path, "devices", "-l"]
             ).strip()
             # Process the output of `adb devices -l`.
             # The first line is header information.
@@ -864,8 +857,12 @@ connection.
 
                     details = {}
                     for part in parts[2:]:
-                        key, value = part.split(":")
-                        details[key] = value
+                        try:
+                            key, value = part.split(":")
+                            details[key] = value
+                        except ValueError:
+                            # Ignore any entry that isn't in "key:value" format.
+                            pass
 
                     if parts[1] == "device":
                         try:
@@ -877,7 +874,7 @@ connection.
                         name = "Unknown device (offline)"
                         authorized = False
                     else:
-                        name = "Unknown device (not authorized for development)"
+                        name = f"Device not available for development ({' '.join(parts[1:])})"
                         authorized = False
 
                     devices[parts[0]] = {
@@ -1194,7 +1191,7 @@ In future, you can specify this device by running:
             try:
                 self.tools.subprocess.check_output(
                     [
-                        os.fsdecode(self.avdmanager_path),
+                        self.avdmanager_path,
                         "--verbose",
                         "create",
                         "avd",
@@ -1285,19 +1282,25 @@ In future, you can specify this device by running:
         if extra_args is None:
             extra_args = []
 
+        # Start the emulator
         emulator_popen = self.tools.subprocess.Popen(
-            [
-                os.fsdecode(self.emulator_path),
-                f"@{avd}",
-                "-dns-server",
-                "8.8.8.8",
-            ]
-            + extra_args,
+            [self.emulator_path, f"@{avd}", "-dns-server", "8.8.8.8"] + extra_args,
             env=self.env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             bufsize=1,
             start_new_session=True,
+        )
+
+        # Start capturing the emulator's output
+        # On Windows, the emulator can block until stdout is read and the emulator will
+        # not actually run until the user sends CTRL+C to Briefcase (#1573). This
+        # avoids that scenario while also ensuring emulator output is always available
+        # to print in the console if other issues occur.
+        emulator_streamer = self.tools.subprocess.stream_output_non_blocking(
+            label="Android emulator",
+            popen_process=emulator_popen,
+            capture_output=True,
         )
 
         # wrap AVD name in quotes since '@' is a special char in PowerShell
@@ -1306,36 +1309,40 @@ In future, you can specify this device by running:
             for arg in map(str, emulator_popen.args)
         )
 
-        error_msg = (
-            "{prologue}"
-            + f"""
+        general_error_msg = f"""
+Review the emulator output above for:
+ - Troubleshooting or resolution steps such as enabling hardware acceleration
+ - Other errors or warnings that may be suggesting the cause of the startup failure
 
-Try starting the emulator manually by running:
+Ensure your Android SDK is up-to-date by running:
+
+    $ briefcase upgrade {AndroidSDK.name}
+
+To review Google's general troubleshooting steps for the emulator, visit:
+
+    https://developer.android.com/studio/run/emulator-troubleshooting
+
+You can also start the emulator manually by running:
 
     $ {emulator_command}
-
-Resolve any problems you discover, then try running your app again. You may
-find this page helpful in diagnosing emulator problems.
-
-    https://developer.android.com/studio/run/emulator-acceleration#accel-vm
 """
-        )
+
+        failed_startup_error_msg = f"{{prologue}}\n{general_error_msg}"
 
         # The boot process happens in 2 phases.
-        # First, the emulator appears in the device list. However, it's
-        # not ready until the boot process has finished. To determine
-        # the boot status, we need the device ID, and an ADB connection.
+        # First, the emulator appears in the device list. However, it's not ready until
+        # the boot process has finished. To determine the boot status, we need the
+        # device ID, and an ADB connection.
 
-        # Phase 1: Wait for the device to appear so we can get an
-        # ADB instance for the new device.
+        # Phase 1: Wait for the device to appear so we can get an ADB instance for it.
         try:
-            with self.tools.input.wait_bar("Starting emulator..."):
+            with self.tools.input.wait_bar("Starting emulator...") as keep_alive:
                 adb = None
                 known_devices = set()
                 while adb is None:
                     if emulator_popen.poll() is not None:
                         raise BriefcaseCommandError(
-                            error_msg.format(
+                            failed_startup_error_msg.format(
                                 prologue="Android emulator was unable to start!"
                             )
                         )
@@ -1358,37 +1365,47 @@ find this page helpful in diagnosing emulator problems.
 
                     # If we haven't found a device, try again in 2 seconds...
                     if adb is None:
+                        keep_alive.update()
                         self.sleep(2)
 
             # Phase 2: Wait for the boot process to complete
             if not adb.has_booted():
-                with self.tools.input.wait_bar("Booting emulator..."):
+                with self.tools.input.wait_bar("Booting emulator...") as keep_alive:
                     while not adb.has_booted():
                         if emulator_popen.poll() is not None:
                             raise BriefcaseCommandError(
-                                error_msg.format(
+                                failed_startup_error_msg.format(
                                     prologue="Android emulator was unable to boot!"
                                 )
                             )
 
                         # Try again in 2 seconds...
+                        keep_alive.update()
                         self.sleep(2)
         except BaseException as e:
-            # if the emulator exited, this should return its output immediately;
-            # if it is still running, this will quickly time out and print nothing.
-            with suppress(subprocess.TimeoutExpired):
-                self.tools.logger.info(emulator_popen.communicate(timeout=1)[0])
+            self.tools.logger.warning(
+                "Emulator output log for startup failure",
+                prefix=self.name,
+            )
+            self.tools.logger.info(emulator_streamer.captured_output)
 
             # Provide troubleshooting steps if user gives up on the emulator starting
             if isinstance(e, KeyboardInterrupt):
-                self.tools.logger.warning()
                 self.tools.logger.warning(
-                    error_msg.format(
-                        prologue="Is the Android emulator not starting up properly?"
-                    )
+                    "Is the Android emulator not starting up properly?",
+                    prefix=self.name,
                 )
+                self.tools.logger.info(
+                    """
+If the emulator opened after pressing CTRL+C, then leave the emulator open and
+run Briefcase again. The running emulator can then be selected from the list.
+"""
+                )
+                self.tools.logger.info(general_error_msg)
 
             raise
+        finally:
+            emulator_streamer.request_stop()
 
         # Return the device ID and full name.
         return device, full_name
@@ -1456,15 +1473,7 @@ class ADB:
         # This keeps performance good in the success case.
         try:
             output = self.tools.subprocess.check_output(
-                [
-                    os.fsdecode(self.tools.android_sdk.adb_path),
-                    "-s",
-                    self.device,
-                ]
-                + [
-                    (os.fsdecode(arg) if isinstance(arg, Path) else arg)
-                    for arg in arguments
-                ],
+                [self.tools.android_sdk.adb_path, "-s", self.device] + list(arguments),
                 quiet=quiet,
             )
             # add returns status code 0 in the case of failure. The only tangible evidence
@@ -1571,7 +1580,7 @@ Activity class not found while starting app.
         # See #1425 for details.
         return self.tools.subprocess.Popen(
             [
-                os.fsdecode(self.tools.android_sdk.adb_path),
+                self.tools.android_sdk.adb_path,
                 "-s",
                 self.device,
                 "logcat",
@@ -1580,7 +1589,8 @@ Activity class not found while starting app.
                 pid,
             ]
             # Filter out some noisy and useless tags.
-            + [f"{tag}:S" for tag in ["EGL_emulation"]],
+            + [f"{tag}:S" for tag in ["EGL_emulation"]]
+            + (["--format=color"] if self.tools.input.is_color_enabled else []),
             env=self.tools.android_sdk.env,
             encoding="UTF-8",
             stdout=subprocess.PIPE,
@@ -1599,7 +1609,7 @@ Activity class not found while starting app.
             # See #1425 for details.
             self.tools.subprocess.run(
                 [
-                    os.fsdecode(self.tools.android_sdk.adb_path),
+                    self.tools.android_sdk.adb_path,
                     "-s",
                     self.device,
                     "logcat",
@@ -1613,7 +1623,8 @@ Activity class not found while starting app.
                     "stdio:*",
                     "python.stdout:*",
                     "AndroidRuntime:*",
-                ],
+                ]
+                + (["--format=color"] if self.tools.input.is_color_enabled else []),
                 env=self.tools.android_sdk.env,
                 check=True,
                 encoding="UTF-8",

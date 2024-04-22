@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import os
 import subprocess
-from typing import List
 
 from briefcase.commands import (
     BuildCommand,
@@ -67,17 +68,26 @@ class LinuxAppImagePassiveMixin(LinuxMixin):
             help="Don't use Docker for building the AppImage",
             required=False,
         )
+        parser.add_argument(
+            "--Xdocker-build",
+            action="append",
+            dest="extra_docker_build_args",
+            help="Additional arguments to use when building the Docker image",
+            required=False,
+        )
 
     def parse_options(self, extra):
         """Extract the use_docker option."""
         options, overrides = super().parse_options(extra)
         self.use_docker = options.pop("use_docker")
+        self.extra_docker_build_args = options.pop("extra_docker_build_args")
         return options, overrides
 
     def clone_options(self, command):
         """Clone the use_docker option."""
         super().clone_options(command)
         self.use_docker = command.use_docker
+        self.extra_docker_build_args = command.extra_docker_build_args
 
     def finalize_app_config(self, app: AppConfig):
         """If we're *not* using Docker, warn the user about portability."""
@@ -149,6 +159,7 @@ class LinuxAppImageMostlyPassiveMixin(LinuxAppImagePassiveMixin):
                 host_bundle_path=self.bundle_path(app),
                 host_data_path=self.data_path,
                 python_version=self.python_version_tag,
+                extra_build_args=self.extra_docker_build_args,
             )
         else:
             NativeAppContext.verify(tools=self.tools, app=app)
@@ -328,11 +339,9 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                         self.tools.linuxdeploy.file_path
                         / self.tools.linuxdeploy.file_name,
                         "--appdir",
-                        os.fsdecode(self.appdir_path(app)),
+                        self.appdir_path(app),
                         "--desktop-file",
-                        os.fsdecode(
-                            self.appdir_path(app) / f"{app.bundle_identifier}.desktop"
-                        ),
+                        self.appdir_path(app) / f"{app.bundle_identifier}.desktop",
                         "--output",
                         "appimage",
                         "-v0" if self.logger.is_deep_debug else "-v1",
@@ -362,7 +371,7 @@ class LinuxAppImageRunCommand(LinuxAppImagePassiveMixin, RunCommand):
         self,
         app: AppConfig,
         test_mode: bool,
-        passthrough: List[str],
+        passthrough: list[str],
         **kwargs,
     ):
         """Start the application.
@@ -376,7 +385,7 @@ class LinuxAppImageRunCommand(LinuxAppImagePassiveMixin, RunCommand):
 
         # Start the app in a way that lets us stream the logs
         app_popen = self.tools.subprocess.Popen(
-            [os.fsdecode(self.binary_path(app))] + passthrough,
+            [self.binary_path(app)] + passthrough,
             cwd=self.tools.home_path,
             **kwargs,
             stdout=subprocess.PIPE,

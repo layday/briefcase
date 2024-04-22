@@ -12,10 +12,26 @@ Gradle project
 | |f|    | |y|   |     | |f|    |       | |v| | |f|    | |v| | |v|   |
 +--------+-------+-----+--------+-------+-----+--------+-----+-------+
 
-
 When generating an Android project, Briefcase produces a Gradle project.
 
-Gradle requires an install of the Android SDK and a Java 17 JDK.
+Environment
+===========
+
+Gradle requires an install of a Java 17 JDK and the Android SDK.
+
+If the methods below fail to find an Android SDK or Java JDK, Briefcase will
+download and install an isolated copy in its data directory.
+
+Java JDK
+--------
+
+If you have an existing install of a Java 17 JDK, it will be used by Briefcase
+if the ``JAVA_HOME`` environment variable is set. On macOS, if ``JAVA_HOME`` is
+not set, Briefcase will use the ``/usr/libexec/java_home`` tool to find an
+existing JDK install.
+
+Android SDK
+-----------
 
 If you have an existing install of the Android SDK, it will be used by Briefcase
 if the ``ANDROID_HOME`` environment variable is set. If ``ANDROID_HOME`` is not
@@ -24,13 +40,8 @@ present in the environment, Briefcase will honor the deprecated
 must have version 9.0 of Command-line Tools installed; this version can be
 installed in the SDK Manager in Android Studio.
 
-If you have an existing install of a Java 17 JDK, it will be used by Briefcase
-if the ``JAVA_HOME`` environment variable is set. On macOS, if ``JAVA_HOME`` is
-not set, Briefcase will use the ``/usr/libexec/java_home`` tool to find an
-existing JDK install.
-
-If the above methods fail to find an Android SDK or Java JDK, Briefcase will
-download and install an isolated copy in its data directory.
+Packaging format
+================
 
 Briefcase supports three packaging formats for an Android app:
 
@@ -47,19 +58,19 @@ application must provide the icons in the following sizes, for 2 variants:
 
 * ``round``:
 
-  * 48px
-  * 72px
-  * 96px
-  * 144px
-  * 192px
+  * 48px (``mdpi``; baseline resolution)
+  * 72px (``hdpi``; 1.5x scale)
+  * 96px (``xhdpi``; 2x scale)
+  * 144px (``xxhdpi``; 3x scale)
+  * 192px (``xxxhdpi``; 4x scale)
 
 * ``square``:
 
-  * 48px
-  * 72px
-  * 96px
-  * 144px
-  * 192px
+  * 48px (``mdpi``; baseline resolution)
+  * 72px (``hdpi``; 1.5x scale)
+  * 96px (``xhdpi``; 2x scale)
+  * 144px (``xxhdpi``; 3x scale)
+  * 192px (``xxxhdpi``; 4x scale)
 
 Splash Image format
 ===================
@@ -71,25 +82,28 @@ and device display densities:
 
 * ``normal`` (typical phones; up to 480 density-independent pixels):
 
-  * 320px
-  * 480px (``hdpi``)
-  * 640px (``xhdpi``)
-  * 1280px (``xxxhdpi``)
+  * 320px (``mdpi``; baseline resolution)
+  * 480px (``hdpi``; 1.5x scale)
+  * 640px (``xhdpi``; 2x scale)
+  * 960px (``xxhdpi``; 3x scale)
+  * 1280px (``xxxhdpi``; 4x scale)
 
 * ``large`` (large format phones, or phone-tablet "phablet" hybrids; up to
   720 density-independent pixels):
 
-  * 480px
-  * 720px (``hdpi``)
-  * 960px (``xhdpi``)
-  * 1920px (``xxxhdpi``)
+  * 480px (``mdpi``; baseline resolution)
+  * 720px (``hdpi``; 1.5x scale)
+  * 960px (``xhdpi``; 2x scale)
+  * 1440px (``xxhdpi``; 3x scale)
+  * 1920px (``xxxhdpi``; 4x scale)
 
 * ``xlarge`` (tablets; larger than 720 density-independent pixels)
 
-  * 720px
-  * 1080px (``hdpi``)
-  * 1440px (``xhdpi``)
-  * 2880px (``xxxhdpi``)
+  * 720px (``mdpi``; baseline resolution)
+  * 1080px (``hdpi``; 1.5x scale)
+  * 1440px (``xhdpi``; 2x scale)
+  * 2160px (``xxhdpi``; 3x scale)
+  * 2880px (``xxxhdpi``; 4x scale)
 
 Consult `the Android documentation
 <https://developer.android.com/guide/topics/large-screens/support-different-screen-sizes>`__
@@ -104,6 +118,7 @@ Colors
 
 Android allows for some customization of the colors used by your app:
 
+* ``base_theme`` is used to set the base Android theme.
 * ``accent_color`` is used as a subtle highlight throughout your app to
   call attention to key elements. It's used on things like form labels and
   inputs.
@@ -113,6 +128,61 @@ Android allows for some customization of the colors used by your app:
   status bar at the top of the screen.
 * ``splash_background_color`` is the color of the splash background that
   displays while an app is loading.
+
+Additional options
+==================
+
+The following options can be provided at the command line when producing
+Android projects:
+
+run
+---
+
+``-d <device>`` / ``--device <device>``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The device or emulator to target. Can be specified as:
+
+* ``@`` followed by an AVD name (e.g., ``@beePhone``); or
+* a device ID (a hexadecimal identifier associated with a specific hardware device);
+  or
+* a JSON dictionary specifying the properties of a device that will be created.
+  This dictionary must have, at a minimum, an AVD name:
+
+.. code-block:: console
+
+     $ briefcase run -d '{"avd":"new-device"}'
+
+  You may also specify:
+
+  - ``device_type`` (e.g., ``pixel``) - the type of device to emulate
+  - ``skin`` (e.g., ``pixel_3a``) - the skin to apply to the emulator
+  - ``system_image`` (e.g., ``system-images;android-31;default;arm64-v8a``) - the Android
+    system image to use in the emulator.
+
+  If any of these attributes are *not* specified, they will fall back
+  to reasonable defaults.
+
+``--Xemulator=<value>``
+~~~~~~~~~~~~~~~~~~~~~~~
+
+A configuration argument to be passed to the emulator on startup. For example,
+to start the emulator in "headless" mode (i.e., without a display window),
+specify ``--Xemulator=-no-window``. See `the Android documentation
+<https://developer.android.com/studio/run/emulator-commandline>`__ for details
+on the full list of options that can be provided.
+
+You may specify multiple ``--Xemulator`` arguments; each one specifies a
+single argument to pass to the emulator, in the order they are specified.
+
+``--shutdown-on-exit``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Instruct Briefcase to shut down the emulator when the run finishes. This is
+especially useful if you are running in headless mode, as the emulator will
+continue to run in the background, but there will be no visual manifestation
+that it is running. It may also be useful as a cleanup mechanism when running
+in a CI configuration.
 
 Application configuration
 =========================
@@ -155,6 +225,22 @@ the ``AndroidManifest.xml`` of your app.
 
 Additional content that will be added verbatim just before the closing ``</activity>``
 declaration of the ``AndroidManifest.xml`` of your app.
+
+``base_theme``
+--------------
+
+The base theme for the application. Defaults to ``Theme.AppCompat.Light.DarkActionBar``
+
+``build_gradle_dependencies``
+-----------------------------
+
+The list of libraries that should be linked into the Android application. Each library
+should be a versioned Maven package specifier. If unspecified, three libraries will be
+linked into the app:
+
+* ``androidx.appcompat:appcompat:1.0.2``
+* ``androidx.constraintlayout:constraintlayout:1.1.3``
+* ``androidx.swiperefreshlayout:swiperefreshlayout:1.1.0``
 
 ``build_gradle_extra_content``
 ------------------------------
@@ -217,61 +303,6 @@ significant digits of the final version code:
 If you want to manually specify a version code by defining ``version_code`` in
 your application configuration. If provided, this value will override any
 auto-generated value.
-
-Additional options
-==================
-
-The following options can be provided at the command line when producing
-Android projects:
-
-run
----
-
-``-d <device>`` / ``--device <device>``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The device or emulator to target. Can be specified as:
-
-* ``@`` followed by an AVD name (e.g., ``@beePhone``); or
-* a device ID (a hexadecimal identifier associated with a specific hardware device);
-  or
-* a JSON dictionary specifying the properties of a device that will be created.
-  This dictionary must have, at a minimum, an AVD name:
-
-.. code-block:: console
-
-     $ briefcase run -d '{"avd":"new-device"}'
-
-  You may also specify:
-
-  - ``device_type`` (e.g., ``pixel``) - the type of device to emulate
-  - ``skin`` (e.g., ``pixel_3a``) - the skin to apply to the emulator
-  - ``system_image`` (e.g., ``system-images;android-31;default;arm64-v8a``) - the Android
-    system image to use in the emulator.
-
-  If any of these attributes are *not* specified, they will fall back
-  to reasonable defaults.
-
-``--Xemulator=<value>``
-~~~~~~~~~~~~~~~~~~~~~~~
-
-A configuration argument to be passed to the emulator on startup. For example,
-to start the emulator in "headless" mode (i.e., without a display window),
-specify ``--Xemulator=-no-window``. See `the Android documentation
-<https://developer.android.com/studio/run/emulator-commandline>`__ for details
-on the full list of options that can be provided.
-
-You may specify multiple ``--Xemulator`` arguments; each one specifies a
-single argument to pass to the emulator, in the order they are specified.
-
-``--shutdown-on-exit``
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Instruct Briefcase to shut down the emulator when the run finishes. This is
-especially useful if you are running in headless mode, as the emulator will
-continue to run in the background, but there will be no visual manifestation
-that it is running. It may also be useful as a cleanup mechanism when running
-in a CI configuration.
 
 .. _android-permissions:
 

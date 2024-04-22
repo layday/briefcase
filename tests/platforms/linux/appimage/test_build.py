@@ -13,7 +13,7 @@ from briefcase.exceptions import (
     NetworkFailure,
     UnsupportedHostError,
 )
-from briefcase.integrations.docker import DockerAppContext
+from briefcase.integrations.docker import Docker, DockerAppContext
 from briefcase.integrations.linuxdeploy import LinuxDeploy, LinuxDeployBase
 from briefcase.platforms.linux.appimage import LinuxAppImageBuildCommand
 
@@ -24,15 +24,7 @@ from ....utils import create_file
 def first_app(first_app_config, tmp_path):
     """A fixture for the first app, rolled out on disk."""
     # Make it look like the template has been generated
-    app_dir = (
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First App.AppDir"
-    )
+    app_dir = tmp_path / "base_path/build/first-app/linux/appimage/First App.AppDir"
     (app_dir / "usr/app/support").mkdir(parents=True, exist_ok=True)
     (app_dir / "usr/app_packages/firstlib").mkdir(parents=True, exist_ok=True)
     (app_dir / "usr/app_packages/secondlib").mkdir(parents=True, exist_ok=True)
@@ -58,6 +50,7 @@ def build_command(tmp_path, first_app_config):
     command.tools.host_os = "Linux"
     command.tools.host_arch = "x86_64"
     command.use_docker = False
+    command.extra_docker_build_args = []
     command._briefcase_toml[first_app_config] = {
         "paths": {
             "app_path": "First App.AppDir/usr/app",
@@ -161,15 +154,7 @@ def test_build_appimage(build_command, first_app, debug_mode, tmp_path, sub_stre
     build_command.build_app(first_app)
 
     # linuxdeploy was invoked
-    app_dir = (
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First App.AppDir"
-    )
+    app_dir = tmp_path / "base_path/build/first-app/linux/appimage/First App.AppDir"
     expected_env = {
         "PATH": "/usr/local/bin:/usr/bin:/path/to/somewhere",
         "LINUXDEPLOY_OUTPUT_VERSION": "0.0.1",
@@ -203,12 +188,7 @@ def test_build_appimage(build_command, first_app, debug_mode, tmp_path, sub_stre
     # Binary is marked executable
     build_command.tools.os.chmod.assert_called_with(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First_App-0.0.1-x86_64.AppImage",
+        / "base_path/build/first-app/linux/appimage/First_App-0.0.1-x86_64.AppImage",
         0o755,
     )
 
@@ -221,12 +201,7 @@ def test_build_appimage_with_plugin(build_command, first_app, tmp_path, sub_stre
     """A Linux app can be packaged as an AppImage with a plugin."""
     # Mock the existence of some plugins
     gtk_plugin_path = (
-        tmp_path
-        / "briefcase"
-        / "tools"
-        / "linuxdeploy_plugins"
-        / "gtk"
-        / "linuxdeploy-plugin-gtk.sh"
+        tmp_path / "briefcase/tools/linuxdeploy_plugins/gtk/linuxdeploy-plugin-gtk.sh"
     )
     gtk_plugin_path.parent.mkdir(parents=True)
     gtk_plugin_path.touch()
@@ -246,15 +221,7 @@ def test_build_appimage_with_plugin(build_command, first_app, tmp_path, sub_stre
     build_command.build_app(first_app)
 
     # linuxdeploy was invoked
-    app_dir = (
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First App.AppDir"
-    )
+    app_dir = tmp_path / "base_path/build/first-app/linux/appimage/First App.AppDir"
     build_command._subprocess.Popen.assert_called_with(
         [
             os.fsdecode(tmp_path / "briefcase/tools/linuxdeploy-x86_64.AppImage"),
@@ -290,23 +257,13 @@ def test_build_appimage_with_plugin(build_command, first_app, tmp_path, sub_stre
     # Local plugin marked executable
     build_command.tools.os.chmod.assert_any_call(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "linuxdeploy-plugin-something.sh",
+        / "base_path/build/first-app/linux/appimage/linuxdeploy-plugin-something.sh",
         0o755,
     )
     # Binary is marked executable
     build_command.tools.os.chmod.assert_called_with(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First_App-0.0.1-x86_64.AppImage",
+        / "base_path/build/first-app/linux/appimage/First_App-0.0.1-x86_64.AppImage",
         0o755,
     )
 
@@ -315,8 +272,7 @@ def test_build_failure(build_command, first_app, tmp_path, sub_stream_kw):
     """If linuxdeploy fails, the build is stopped."""
     # Mock a failure in the build
     build_command._subprocess.Popen.side_effect = subprocess.CalledProcessError(
-        cmd=["linuxdeploy-x86_64.AppImage", "..."],
-        returncode=1,
+        cmd=["linuxdeploy-x86_64.AppImage", "..."], returncode=1
     )
 
     # Invoking the build will raise an error.
@@ -325,15 +281,7 @@ def test_build_failure(build_command, first_app, tmp_path, sub_stream_kw):
         build_command.build_app(first_app)
 
     # linuxdeploy was invoked
-    app_dir = (
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First App.AppDir"
-    )
+    app_dir = tmp_path / "base_path/build/first-app/linux/appimage/First App.AppDir"
     build_command._subprocess.Popen.assert_called_with(
         [
             os.fsdecode(tmp_path / "briefcase/tools/linuxdeploy-x86_64.AppImage"),
@@ -369,13 +317,24 @@ def test_build_failure(build_command, first_app, tmp_path, sub_stream_kw):
 @pytest.mark.skipif(
     sys.platform == "win32", reason="Windows paths aren't converted in Docker context"
 )
-def test_build_appimage_in_docker(build_command, first_app, tmp_path, sub_stream_kw):
+def test_build_appimage_in_docker(
+    build_command,
+    first_app,
+    sub_stream_kw,
+    tmp_path,
+    monkeypatch,
+):
     """A Linux app can be packaged as an AppImage in a docker container."""
 
     # Enable docker, and move to a non-Linux OS.
     build_command.tools.host_os = "TestOS"
     build_command.use_docker = True
 
+    # Provide Docker
+    monkeypatch.setattr(
+        Docker, "_is_user_mapping_enabled", mock.MagicMock(return_value=True)
+    )
+    build_command.tools.docker = Docker(tools=build_command.tools)
     # Provide Docker app context
     build_command.tools[first_app].app_context = DockerAppContext(
         tools=build_command.tools,
@@ -384,19 +343,9 @@ def test_build_appimage_in_docker(build_command, first_app, tmp_path, sub_stream
     build_command.tools[first_app].app_context.prepare(
         image_tag=f"briefcase/com.example.first-app:py3.{sys.version_info.minor}",
         dockerfile_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "Dockerfile",
+        / "base_path/build/first-app/linux/appimage/Dockerfile",
         app_base_path=tmp_path / "base_path",
-        host_bundle_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage",
+        host_bundle_path=tmp_path / "base_path/build/first-app/linux/appimage",
         host_data_path=tmp_path / "briefcase",
         python_version=f"3.{sys.version_info.minor}",
     )
@@ -410,7 +359,7 @@ def test_build_appimage_in_docker(build_command, first_app, tmp_path, sub_stream
             "run",
             "--rm",
             "--volume",
-            f"{tmp_path / 'base_path' / 'build' / 'first-app' / 'linux' / 'appimage'}:/app:z",
+            f"{tmp_path / 'base_path/build/first-app/linux/appimage'}:/app:z",
             "--volume",
             f"{build_command.data_path}:/briefcase:z",
             "--env",
@@ -439,17 +388,16 @@ def test_build_appimage_in_docker(build_command, first_app, tmp_path, sub_stream
             "--deploy-deps-only",
             "/app/First App.AppDir/usr/app_packages/secondlib",
         ],
+        env={
+            "PATH": "/usr/local/bin:/usr/bin:/path/to/somewhere",
+            "DOCKER_CLI_HINTS": "false",
+        },
         **sub_stream_kw,
     )
     # Binary is marked executable
     build_command.tools.os.chmod.assert_called_with(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First_App-0.0.1-x86_64.AppImage",
+        / "base_path/build/first-app/linux/appimage/First_App-0.0.1-x86_64.AppImage",
         0o755,
     )
 
@@ -467,12 +415,7 @@ def test_build_appimage_with_plugins_in_docker(
     """A Linux app can be packaged as an AppImage with plugins in a Docker container."""
     # Mock the existence of some plugins
     gtk_plugin_path = (
-        tmp_path
-        / "briefcase"
-        / "tools"
-        / "linuxdeploy_plugins"
-        / "gtk"
-        / "linuxdeploy-plugin-gtk.sh"
+        tmp_path / "briefcase/tools/linuxdeploy_plugins/gtk/linuxdeploy-plugin-gtk.sh"
     )
     gtk_plugin_path.parent.mkdir(parents=True)
     gtk_plugin_path.touch()
@@ -494,6 +437,11 @@ def test_build_appimage_with_plugins_in_docker(
     monkeypatch.setattr(LinuxDeployBase, "supported_host_os", {"TestOS"})
     build_command.use_docker = True
 
+    # Provide Docker
+    monkeypatch.setattr(
+        Docker, "_is_user_mapping_enabled", mock.MagicMock(return_value=True)
+    )
+    build_command.tools.docker = Docker(tools=build_command.tools)
     # Provide Docker app context
     build_command.tools[first_app].app_context = DockerAppContext(
         tools=build_command.tools,
@@ -502,19 +450,9 @@ def test_build_appimage_with_plugins_in_docker(
     build_command.tools[first_app].app_context.prepare(
         image_tag=f"briefcase/com.example.first-app:py3.{sys.version_info.minor}",
         dockerfile_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "Dockerfile",
+        / "base_path/build/first-app/linux/appimage/Dockerfile",
         app_base_path=tmp_path / "base_path",
-        host_bundle_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage",
+        host_bundle_path=tmp_path / "base_path/build/first-app/linux/appimage",
         host_data_path=tmp_path / "briefcase",
         python_version=f"3.{sys.version_info.minor}",
     )
@@ -528,7 +466,7 @@ def test_build_appimage_with_plugins_in_docker(
             "run",
             "--rm",
             "--volume",
-            f"{tmp_path / 'base_path' / 'build' / 'first-app' / 'linux' / 'appimage'}:/app:z",
+            f"{tmp_path / 'base_path/build/first-app/linux/appimage'}:/app:z",
             "--volume",
             f"{build_command.data_path}:/briefcase:z",
             "--env",
@@ -568,28 +506,22 @@ def test_build_appimage_with_plugins_in_docker(
             "--plugin",
             "something",
         ],
+        env={
+            "PATH": "/usr/local/bin:/usr/bin:/path/to/somewhere",
+            "DOCKER_CLI_HINTS": "false",
+        },
         **sub_stream_kw,
     )
     # Local plugin marked executable
     build_command.tools.os.chmod.assert_any_call(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "linuxdeploy-plugin-something.sh",
+        / "base_path/build/first-app/linux/appimage/linuxdeploy-plugin-something.sh",
         0o755,
     )
     # Binary is marked executable
     build_command.tools.os.chmod.assert_called_with(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First_App-0.0.1-x86_64.AppImage",
+        / "base_path/build/first-app/linux/appimage/First_App-0.0.1-x86_64.AppImage",
         0o755,
     )
 
@@ -597,14 +529,13 @@ def test_build_appimage_with_plugins_in_docker(
 def test_build_appimage_with_support_package_update(
     build_command,
     first_app,
-    tmp_path,
     sub_stream_kw,
+    tmp_path,
     capsys,
 ):
     """If a support package update is performed, the user is warned."""
     # To trigger the app package update logic, we need to invoke the full build
-    # command, and fake being on a verified Linux install with a generated
-    # app.
+    # command, and fake being on a verified Linux install with a generated app.
     build_command.tools.host_os = "Linux"
 
     # Mock shutil so we can check for folder deletion
@@ -619,10 +550,7 @@ def test_build_appimage_with_support_package_update(
     first_app.linuxdeploy_plugins = []
 
     # Fake the existence of some source files.
-    create_file(
-        tmp_path / "base_path/src/first_app/app.py",
-        "print('an app')",
-    )
+    create_file(tmp_path / "base_path/src/first_app/app.py", "print('an app')")
 
     # Mock the generated app template
     (build_command.bundle_path(first_app) / "src").mkdir(parents=True)
@@ -642,15 +570,7 @@ def test_build_appimage_with_support_package_update(
     build_command(first_app, update_support=True)
 
     # linuxdeploy was invoked
-    app_dir = (
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First App.AppDir"
-    )
+    app_dir = tmp_path / "base_path/build/first-app/linux/appimage/First App.AppDir"
     build_command._subprocess.Popen.assert_called_with(
         [
             os.fsdecode(tmp_path / "briefcase/tools/linuxdeploy-x86_64.AppImage"),
@@ -681,11 +601,6 @@ def test_build_appimage_with_support_package_update(
     # Binary is marked executable
     build_command.tools.os.chmod.assert_called_with(
         tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "linux"
-        / "appimage"
-        / "First_App-0.0.1-x86_64.AppImage",
+        / "base_path/build/first-app/linux/appimage/First_App-0.0.1-x86_64.AppImage",
         0o755,
     )

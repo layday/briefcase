@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import os
 import re
 import subprocess
 import sys
@@ -43,18 +42,34 @@ class LinuxSystemPassiveMixin(LinuxMixin):
 
     @property
     def use_docker(self):
-        # The passive mixing doesn't expose the `--target` option, as it can't use
-        # Docker. However, we need the use_docker property to exist so that the
-        # app config can be finalized in the general case.
-        return False
+        # The system backend doesn't have a literal "--use-docker" option, but
+        # `use_docker` is a useful flag for shared logic purposes, so evaluate
+        # what "use docker" means in terms of target_image.
+        return bool(self.target_image)
+
+    def add_options(self, parser):
+        super().add_options(parser)
+        parser.add_argument(
+            "--target",
+            dest="target",
+            help="Docker base image tag for the distribution to target for the build (e.g., `ubuntu:jammy`)",
+            required=False,
+        )
+        parser.add_argument(
+            "--Xdocker-build",
+            action="append",
+            dest="extra_docker_build_args",
+            help="Additional arguments to use when building the Docker image",
+            required=False,
+        )
 
     def parse_options(self, extra):
-        # The passive mixin doesn't expose the `--target` option, but if run infers
-        # build, we need target image to be defined.
-        options = super().parse_options(extra)
-        self.target_image = None
+        """Extract the target_image option."""
+        options, overrides = super().parse_options(extra)
+        self.target_image = options.pop("target")
+        self.extra_docker_build_args = options.pop("extra_docker_build_args")
 
-        return options
+        return options, overrides
 
     def build_path(self, app):
         # Override the default build path to use the vendor name,
@@ -195,13 +210,6 @@ Install Docker Engine and try again or run Briefcase on an Arch host system.
 class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
     # The Mostly Passive mixin verifies that Docker exists and can be run, but
     # doesn't require that we're actually in a Linux environment.
-
-    @property
-    def use_docker(self):
-        # The system backend doesn't have a literal "--use-docker" option, but
-        # `use_docker` is a useful flag for shared logic purposes, so evaluate
-        # what "use docker" means in terms of target_image.
-        return bool(self.target_image)
 
     def app_python_version_tag(self, app: AppConfig):
         if self.use_docker:
@@ -372,26 +380,11 @@ class LinuxSystemMostlyPassiveMixin(LinuxSystemPassiveMixin):
         if self.use_docker:
             Docker.verify(tools=self.tools, image_tag=self.target_image)
 
-    def add_options(self, parser):
-        super().add_options(parser)
-        parser.add_argument(
-            "--target",
-            dest="target",
-            help="Docker base image tag for the distribution to target for the build (e.g., `ubuntu:jammy`)",
-            required=False,
-        )
-
-    def parse_options(self, extra):
-        """Extract the target_image option."""
-        options, overrides = super().parse_options(extra)
-        self.target_image = options.pop("target")
-
-        return options, overrides
-
     def clone_options(self, command):
         """Clone the target_image option."""
         super().clone_options(command)
         self.target_image = command.target_image
+        self.extra_docker_build_args = command.extra_docker_build_args
 
     def verify_python(self, app: AppConfig):
         """Verify that the version of Python being used to build the app in Docker is
@@ -592,6 +585,7 @@ to install the missing dependencies, and re-run Briefcase.
                 host_bundle_path=self.bundle_path(app),
                 host_data_path=self.data_path,
                 python_version=app.python_version_tag,
+                extra_build_args=self.extra_docker_build_args,
             )
 
             # Check the system Python on the target system to see if it is
@@ -767,7 +761,7 @@ with details about the release.
                     f"Template does not provide a manpage source file `{app.app_name}.1`"
                 )
 
-        self.logger.info("Update file permissions...")
+        self.logger.verbose("Update file permissions...")
         with self.input.wait_bar("Updating file permissions..."):
             for path in self.project_path(app).glob("**/*"):
                 old_perms = self.tools.os.stat(path).st_mode & 0o777
@@ -781,7 +775,7 @@ with details about the release.
 
                 # If there's been any change in permissions, apply them
                 if new_perms != old_perms:  # pragma: no-cover-if-is-windows
-                    self.logger.info(
+                    self.logger.verbose(
                         "Updating file permissions on "
                         f"{path.relative_to(self.bundle_path(app))} "
                         f"from {oct(old_perms)[2:]} to {oct(new_perms)[2:]}"
@@ -792,7 +786,7 @@ with details about the release.
             self.tools.subprocess.check_output(["strip", self.binary_path(app)])
 
 
-class LinuxSystemRunCommand(LinuxSystemPassiveMixin, RunCommand):
+class LinuxSystemRunCommand(LinuxSystemMixin, RunCommand):
     description = "Run a Linux system project."
     supported_host_os = {"Linux"}
     supported_host_os_reason = "Linux system projects can only be executed on Linux."
@@ -809,23 +803,24 @@ class LinuxSystemRunCommand(LinuxSystemPassiveMixin, RunCommand):
         # Set up the log stream
         kwargs = self._prepare_app_env(app=app, test_mode=test_mode)
 
-        # Start the app in a way that lets us stream the logs
-        app_popen = self.tools.subprocess.Popen(
-            [os.fsdecode(self.binary_path(app))] + passthrough,
-            cwd=self.tools.home_path,
-            **kwargs,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            bufsize=1,
-        )
+        with self.tools[app].app_context.run_app_context(kwargs) as kwargs:
+            # Start the app in a way that lets us stream the logs
+            app_popen = self.tools[app].app_context.Popen(
+                [self.binary_path(app)] + passthrough,
+                cwd=self.tools.home_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                **kwargs,
+            )
 
-        # Start streaming logs for the app.
-        self._stream_app_logs(
-            app,
-            popen=app_popen,
-            test_mode=test_mode,
-            clean_output=False,
-        )
+            # Start streaming logs for the app.
+            self._stream_app_logs(
+                app,
+                popen=app_popen,
+                test_mode=test_mode,
+                clean_output=False,
+            )
 
 
 def debian_multiline_description(description):
@@ -852,7 +847,7 @@ class LinuxSystemPackageCommand(LinuxSystemMixin, PackageCommand):
         """Verify that the local environment contains the packaging tools."""
         tool_name, executable_name, package_name = {
             "deb": ("dpkg", "dpkg-deb", "dpkg-dev"),
-            "rpm": ("rpm-build", "rpmbuild", "rpmbuild"),
+            "rpm": ("rpm-build", "rpmbuild", "rpm-build"),
             "pkg": ("makepkg", "makepkg", "pacman"),
         }[app.packaging_format]
 

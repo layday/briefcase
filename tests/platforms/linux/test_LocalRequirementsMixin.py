@@ -9,7 +9,7 @@ import pytest
 from briefcase.commands import CreateCommand
 from briefcase.console import Console, Log
 from briefcase.exceptions import BriefcaseCommandError
-from briefcase.integrations.docker import DockerAppContext
+from briefcase.integrations.docker import Docker, DockerAppContext
 from briefcase.integrations.subprocess import Subprocess
 from briefcase.platforms.linux import LocalRequirementsMixin
 
@@ -61,10 +61,15 @@ def no_docker_create_command(first_app_config, tmp_path):
 
 
 @pytest.fixture
-def create_command(no_docker_create_command, first_app_config, tmp_path):
+def create_command(no_docker_create_command, first_app_config, tmp_path, monkeypatch):
     # Enable Docker use
     no_docker_create_command.use_docker = True
 
+    # Provide Docker
+    monkeypatch.setattr(
+        Docker, "_is_user_mapping_enabled", MagicMock(return_value=True)
+    )
+    no_docker_create_command.tools.docker = Docker(tools=no_docker_create_command.tools)
     # Provide Docker app context
     no_docker_create_command.tools[first_app_config].app_context = DockerAppContext(
         tools=no_docker_create_command.tools,
@@ -72,20 +77,9 @@ def create_command(no_docker_create_command, first_app_config, tmp_path):
     )
     no_docker_create_command.tools[first_app_config].app_context.prepare(
         image_tag="briefcase/com.example.first-app:py3.X",
-        dockerfile_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "tester"
-        / "dummy"
-        / "Dockerfile",
+        dockerfile_path=tmp_path / "base_path/build/first-app/tester/dummy/Dockerfile",
         app_base_path=tmp_path / "base_path",
-        host_bundle_path=tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "tester"
-        / "dummy",
+        host_bundle_path=tmp_path / "base_path/build/first-app/tester/dummy",
         host_data_path=tmp_path / "briefcase",
         python_version="3.X",
     )
@@ -163,12 +157,12 @@ def test_install_app_requirements_in_docker(create_command, first_app_config, tm
 
     # pip was invoked inside docker.
     create_command.tools.subprocess.run.assert_called_once_with(
-        [
+        args=[
             "docker",
             "run",
             "--rm",
             "--volume",
-            f"{tmp_path / 'base_path' / 'build' / 'first-app' / 'tester' / 'dummy'}:/app:z",
+            f"{tmp_path / 'base_path/build/first-app/tester/dummy'}:/app:z",
             "--volume",
             f"{tmp_path / 'briefcase'}:/briefcase:z",
             "briefcase/com.example.first-app:py3.X",
@@ -189,6 +183,7 @@ def test_install_app_requirements_in_docker(create_command, first_app_config, tm
         ],
         check=True,
         encoding="UTF-8",
+        env={"DOCKER_CLI_HINTS": "false"},
     )
 
     # The local requirements path exists, but is empty
@@ -241,7 +236,7 @@ def test_install_app_requirements_no_docker(
             "--no-python-version-warning",
             "--upgrade",
             "--no-user",
-            f"--target={tmp_path}/base_path/build/first-app/tester/dummy/path/to/app_packages",
+            f"--target={tmp_path / 'base_path/build/first-app/tester/dummy/path/to/app_packages'}",
             "foo==1.2.3",
             "bar>=4.5",
         ],
@@ -302,13 +297,7 @@ def test_install_app_requirements_with_locals(
             "build",
             "--sdist",
             "--outdir",
-            tmp_path
-            / "base_path"
-            / "build"
-            / "first-app"
-            / "tester"
-            / "dummy"
-            / "_requirements",
+            tmp_path / "base_path/build/first-app/tester/dummy/_requirements",
             str(tmp_path / "local/first"),
         ],
         encoding="UTF-8",
@@ -318,34 +307,22 @@ def test_install_app_requirements_with_locals(
     create_command.tools.shutil.copy.mock_calls = [
         call(
             str(tmp_path / "local/second-2.3.4.tar.gz"),
-            tmp_path
-            / "base_path"
-            / "build"
-            / "first-app"
-            / "tester"
-            / "dummy"
-            / "_requirements",
+            tmp_path / "base_path/build/first-app/tester/dummy/_requirements",
         ),
         call(
             str(tmp_path / "local/third-3.4.5-py3-none-any.whl"),
-            tmp_path
-            / "base_path"
-            / "build"
-            / "first-app"
-            / "tester"
-            / "dummy"
-            / "_requirements",
+            tmp_path / "base_path/build/first-app/tester/dummy/_requirements",
         ),
     ]
 
     # pip was invoked inside docker.
     create_command.tools.subprocess.run.assert_called_once_with(
-        [
+        args=[
             "docker",
             "run",
             "--rm",
             "--volume",
-            f"{tmp_path / 'base_path' / 'build' / 'first-app' / 'tester' / 'dummy'}:/app:z",
+            f"{tmp_path / 'base_path/build/first-app/tester/dummy'}:/app:z",
             "--volume",
             f"{tmp_path / 'briefcase'}:/briefcase:z",
             "briefcase/com.example.first-app:py3.X",
@@ -369,6 +346,7 @@ def test_install_app_requirements_with_locals(
         ],
         check=True,
         encoding="UTF-8",
+        env={"DOCKER_CLI_HINTS": "false"},
     )
 
     # The local requirements path exists, and contains the compiled sdist, the
@@ -421,13 +399,7 @@ def test_install_app_requirements_with_bad_local(
             "build",
             "--sdist",
             "--outdir",
-            tmp_path
-            / "base_path"
-            / "build"
-            / "first-app"
-            / "tester"
-            / "dummy"
-            / "_requirements",
+            tmp_path / "base_path/build/first-app/tester/dummy/_requirements",
             str(tmp_path / "local/first"),
         ],
         encoding="UTF-8",
@@ -497,13 +469,7 @@ def test_install_app_requirements_with_bad_local_file(
     # An attempt was made to copy the package
     create_command.tools.shutil.copy.assert_called_once_with(
         str(tmp_path / "local/missing-2.3.4.tar.gz"),
-        tmp_path
-        / "base_path"
-        / "build"
-        / "first-app"
-        / "tester"
-        / "dummy"
-        / "_requirements",
+        tmp_path / "base_path/build/first-app/tester/dummy/_requirements",
     )
 
     # No attempt was made to build the sdist
