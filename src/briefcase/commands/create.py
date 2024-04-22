@@ -650,7 +650,6 @@ class CreateCommand(BaseCommand):
         shutil.rmtree(app_packages_path / 'bin')
         shutil.rmtree(app_packages_path / 'include')
         shutil.rmtree(app_packages_path / 'aiohttp' / '.hash')
-        shutil.rmtree(app_packages_path / 'greenlet' / 'tests')
         for misc_file in chain(
             app_packages_path.rglob('*.pyi'),
             app_packages_path.rglob('*.c'),
