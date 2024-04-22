@@ -604,7 +604,7 @@ class CreateCommand(BaseCommand):
             / f"{app.module_name}-{app.version}.dist-info",
         )
 
-    def optimise(self, app: BaseConfig):
+    def optimise(self, app: AppConfig):
         import compileall
         from functools import partial
         from itertools import chain
@@ -624,9 +624,9 @@ class CreateCommand(BaseCommand):
             quiet=1,
         )
 
-        app_path: Path = self.app_path(app)
-        app_packages_path: Path = self.app_packages_path(app)
-        support_path: Path = self.support_path(app)
+        app_path = self.app_path(app)
+        app_packages_path = self.app_packages_path(app)
+        support_path = self.support_path(app)
 
         for pycache_folder in chain(
             app_path.rglob('__pycache__'),
@@ -648,7 +648,8 @@ class CreateCommand(BaseCommand):
                 py_file.unlink()
 
         shutil.rmtree(app_packages_path / 'bin')
-        shutil.rmtree(app_packages_path / 'include')
+        if (include_path := app_packages_path / 'include').exists():
+            shutil.rmtree(include_path)
         shutil.rmtree(app_packages_path / 'aiohttp' / '.hash')
         for misc_file in chain(
             app_packages_path.rglob('*.pyi'),
