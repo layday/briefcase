@@ -6,7 +6,7 @@ import platform
 import shutil
 import subprocess
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import briefcase
@@ -120,27 +120,6 @@ class CreateCommand(BaseCommand):
             icon_targets = {}
 
         return icon_targets
-
-    def splash_image_targets(self, app: AppConfig):
-        """Obtain the dictionary of splash image targets that the template requires.
-
-        :param app: The config object for the app
-        :return: A dictionary of splash images that the template supports. The keys of
-            the dictionary are the size of the splash images.
-        """
-        # If the template specifies no splash images, return an empty dictionary.
-        # If the template specifies a single splash image without a size specification,
-        #   return a dictionary with a single ``None`` key.
-        # Otherwise, return the full size-keyed dictionary.
-        try:
-            splash_targets = self.path_index(app, "splash")
-            # Convert string-specified splash images into an "unknown size" icon form
-            if isinstance(splash_targets, str):
-                splash_targets = {None: splash_targets}
-        except KeyError:
-            splash_targets = {}
-
-        return splash_targets
 
     def document_type_icon_targets(self, app: AppConfig):
         """Obtain the dictionary of document type icon targets that the template
@@ -420,6 +399,9 @@ class CreateCommand(BaseCommand):
         with self.input.wait_bar("Writing requirements file..."):
             with requirements_path.open("w", encoding="utf-8") as f:
                 if requires:
+                    # Add timestamp so build systems (such as Gradle) detect a change
+                    # in the file and perform a re-installation of all requirements.
+                    f.write(f"# Generated {datetime.now()}\n")
                     for requirement in requires:
                         # If the requirement is a local path, convert it to
                         # absolute, because Flatpak moves the requirements file
@@ -761,29 +743,16 @@ class CreateCommand(BaseCommand):
                     target=self.bundle_path(app) / targets,
                 )
 
-        for variant_or_size, targets in self.splash_image_targets(app).items():
-            try:
-                # Treat the targets as a dictionary of sizes;
-                # if there's no `items`, then it's a splash without variants
-                for size, target in targets.items():
-                    self.install_image(
-                        "splash image",
-                        source=app.splash,
-                        variant=variant_or_size,
-                        size=size,
-                        target=self.bundle_path(app) / target,
-                    )
-            except AttributeError:
-                # Either a single variant, or a single size.
-                self.install_image(
-                    "splash image",
-                    source=app.splash,
-                    variant=None,
-                    size=variant_or_size,
-                    target=self.bundle_path(app) / targets,
-                )
+        # Briefcase v0.3.18 - splash screens deprecated.
+        if getattr(app, "splash", None):
+            self.logger.warning()
+            self.logger.warning(
+                "Splash screens are now configured based on the icon. "
+                "The splash configuration will be ignored."
+            )
 
         for extension, doctype in self.document_type_icon_targets(app).items():
+            self.logger.info()
             for size, target in doctype.items():
                 self.install_image(
                     f"icon for .{extension} documents",

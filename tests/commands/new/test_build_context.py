@@ -122,7 +122,8 @@ system_runtime_requires = [
     # Dependencies that GTK looks for at runtime
     "libcanberra-gtk3-module",
     # Needed to provide WebKit2 at runtime
-    # "gir1.2-webkit2-4.0",
+    # Note: Debian 11 and Ubuntu 20.04 require gir1.2-webkit2-4.0 instead
+    # "gir1.2-webkit2-4.1",
 ]
 """,
         pyproject_table_linux_system_rhel="""\
@@ -158,7 +159,7 @@ system_runtime_requires = [
     # Needed to support Python bindings to GTK
     "gobject-introspection", "typelib(Gtk) = 3.0",
     # Dependencies that GTK looks for at runtime
-    "libcanberra-gtk3-0",
+    "libcanberra-gtk3-module",
     # Needed to provide WebKit2 at runtime
     # "libwebkit2gtk3", "typelib(WebKit2)",
 ]
@@ -474,11 +475,7 @@ class {{ cookiecutter.class_name }}(ppb.Scene):
     def __init__(self, **props):
         super().__init__(**props)
 
-        self.add(
-            ppb.Sprite(
-                image=ppb.Image("{{ cookiecutter.module_name }}/resources/{{ cookiecutter.app_name }}.png"),
-            )
-        )
+        # Add sprites and details to your scene here
 
 
 def main():
@@ -667,11 +664,6 @@ def main():
     metadata = importlib.metadata.metadata(app_module)
 
     os.environ["SDL_VIDEO_X11_WMCLASS"] = metadata["Formal-Name"]
-
-    # Set the app's runtime icon
-    pygame.display.set_icon(
-        pygame.image.load(Path(__file__).parent / "resources/{{ cookiecutter.app_name }}.png")
-    )
 
     pygame.init()
     pygame.display.set_caption(metadata["Formal-Name"])
@@ -1075,7 +1067,8 @@ system_runtime_requires = [
     # Dependencies that GTK looks for at runtime
     "libcanberra-gtk3-module",
     # Needed to provide WebKit2 at runtime
-    # "gir1.2-webkit2-4.0",
+    # Note: Debian 11 and Ubuntu 20.04 require gir1.2-webkit2-4.0 instead
+    # "gir1.2-webkit2-4.1",
 ]
 """,
         pyproject_table_linux_system_rhel="""\
@@ -1111,7 +1104,7 @@ system_runtime_requires = [
     # Needed to support Python bindings to GTK
     "gobject-introspection", "typelib(Gtk) = 3.0",
     # Dependencies that GTK looks for at runtime
-    "libcanberra-gtk3-0",
+    "libcanberra-gtk3-module",
     # Needed to provide WebKit2 at runtime
     # "libwebkit2gtk3", "typelib(WebKit2)",
 ]
