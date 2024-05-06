@@ -346,7 +346,7 @@ class LinuxAppImageBuildCommand(LinuxAppImageMixin, BuildCommand):
                         "appimage",
                         "-v0" if self.logger.is_deep_debug else "-v1",
                         "-l",
-                        "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.0.so.37",
+                        "/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.13.4",
                     ]
                     + additional_args,
                     env=env,
